@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const admin = require("firebase-admin");
 const cookieParser = require("cookie-parser");
 const config = require("../config");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 app.use(cookieParser());
@@ -14,6 +15,11 @@ const GITHUB_CLIENT_ID = config.github.client_id;
 const GITHUB_CLIENT_SECRET = config.github.client_secret;
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
+// Validate environment variables
+if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !JWT_SECRET) {
+    throw new Error("Missing required environment variables.");
+}
+
 // Callback URL configuration
 const GITHUB_CALLBACK_URL = 
   "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/callback";
@@ -22,6 +28,16 @@ const GITHUB_CALLBACK_URL =
 const ADMIN_USERS = ["your-github-username"];
 
 const db = admin.firestore();
+
+// Rate limiting middleware
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: {error: "Too many requests, please try again later."},
+});
+
+// Apply rate limiting to all routes
+app.use(limiter);
 
 // GitHub OAuth Login Redirect
 app.get("/github/login", (req, res) => {
@@ -39,10 +55,11 @@ app.get("/github/login", (req, res) => {
 // GitHub OAuth Callback
 app.get("/github/callback", async (req, res) => {
     const {code, state} = req.query;
-    const savedState = req.cookies.github_oauth_state;
+    const savedState = req.cookies.github_oauth_state; // Retrieve the saved state from the cookie
 
+    // Check if the code and state are present and if the state matches
     if (!code || !state || state !== savedState) {
-        return res.status(400).send("Invalid OAuth request. Please try again.");
+        return res.status(400).json({error: "Invalid OAuth request. Please try again."});
     }
 
     try {
@@ -54,11 +71,11 @@ app.get("/github/callback", async (req, res) => {
                 code,
                 redirect_uri: GITHUB_CALLBACK_URL,
             },
-            { 
-                headers: { 
+            {
+                headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                }, 
+                },
             },
         );
 
@@ -109,18 +126,10 @@ app.get("/github/callback", async (req, res) => {
         });
 
         // Redirect to dashboard
-        res.redirect("https://ai-code-fixer.web.app/dashboard");
+        res.json({message: "Login successful", redirectUrl: "https://ai-code-fixer.web.app/dashboard"});
     } catch (error) {
         console.error("GitHub OAuth Error:", error);
-        res.status(500).send(`
-            <html>
-                <body>
-                    <h1>Authentication Failed</h1>
-                    <p>Error: ${error.message}</p>
-                    <a href="https://ai-code-fixer.web.app/login">Return to Login</a>
-                </body>
-            </html>
-        `);
+        res.status(500).json({error: "Authentication Failed", details: error.message});
     }
 });
 
