@@ -6,7 +6,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
 
   const url = process.env.NODE_ENV === "development" ? 
-    "http://localhost:5001/ai-code-fixer/us-central1/auth/github/login" : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth";
+    "http://localhost:5001/ai-code-fixer/us-central1/auth/github/login" : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/login";
 
   return (
     <nav className="bg-white shadow-lg">
@@ -40,7 +40,7 @@ export default function Navbar() {
               </div>
             ) : (
               <a
-                href="http://localhost:5001/ai-code-fixer/us-central1/auth"
+                href={url}
                 className="bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors flex items-center space-x-2"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
