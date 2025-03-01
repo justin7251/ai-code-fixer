@@ -1,12 +1,11 @@
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthProvider';
 import Link from 'next/link';
 import Image from 'next/image';
 
 export default function Navbar() {
-  const { user, logout } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
 
-  const url = process.env.NODE_ENV === "development" ? 
-    "http://localhost:5001/ai-code-fixer/us-central1/auth/github/login" : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/login";
+  const url = "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/login";
 
   return (
     <nav className="bg-white shadow-lg">
@@ -23,13 +22,13 @@ export default function Navbar() {
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
                   <Image
-                    src={user.profile.avatar_url}
+                    src={user.avatar_url}
                     alt="Profile"
                     width={32}
                     height={32}
                     className="rounded-full"
                   />
-                  <span className="text-gray-700">{user.profile.name}</span>
+                  <span className="text-gray-700">{user.username}</span>
                 </div>
                 <button
                   onClick={logout}

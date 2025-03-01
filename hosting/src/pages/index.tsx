@@ -1,10 +1,10 @@
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthProvider';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import Image from 'next/image';
 
 export default function Home() {
-  const { user, loading, loginWithGithub } = useAuth();
+  const { user, loading, login } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function Home() {
         {!user && !loading && (
           <div className="mt-10">
             <button
-              onClick={() => loginWithGithub()}
+              onClick={() => login()}
               className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-black hover:bg-gray-800 transition-colors duration-200"
             >
               <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
