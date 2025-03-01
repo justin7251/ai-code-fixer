@@ -21,8 +21,7 @@ if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !JWT_SECRET) {
 }
 
 // Callback URL configuration
-const GITHUB_CALLBACK_URL = 
-  "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/callback";
+const GITHUB_CALLBACK_URL = "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/callback";
 
 // Admin users (Modify this list)
 const ADMIN_USERS = ["your-github-username"];
@@ -44,8 +43,8 @@ app.get("/github/login", (req, res) => {
     const state = Math.random().toString(36).substring(2, 15);
     res.cookie("github_oauth_state", state, { 
         httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production', 
-        sameSite: "Strict", 
+        secure: true, 
+        sameSite: "lax", 
     });
 
     const githubAuthURL = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&state=${state}&scope=repo,user&redirect_uri=${encodeURIComponent(GITHUB_CALLBACK_URL)}`;
@@ -59,7 +58,7 @@ app.get("/github/callback", async (req, res) => {
 
     // Check if the code and state are present and if the state matches
     if (!code || !state || state !== savedState) {
-        return res.status(400).json({error: "Invalid OAuth request. Please try again."});
+        return res.status(400).json({error: "Invalid OAuth request. Please try again.", savedState: savedState});
     }
 
     try {
@@ -125,8 +124,8 @@ app.get("/github/callback", async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
-        // Redirect to dashboard
-        res.json({message: "Login successful", redirectUrl: "https://ai-code-fixer.web.app/dashboard"});
+        // Redirect to dashboard   
+        res.redirect(`https://ai-code-fixer.web.app/dashboard`);
     } catch (error) {
         console.error("GitHub OAuth Error:", error);
         res.status(500).json({error: "Authentication Failed", details: error.message});
