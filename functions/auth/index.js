@@ -192,4 +192,46 @@ app.get("/logout", (req, res) => {
     res.json({message: "Logged out successfully"});
 });
 
+// GitHub Repositories proxy endpoint
+app.get("/github-repos", async (req, res) => {
+    const token = req.cookies.session_token;
+    
+    if (!token) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+    
+    try {
+        // Verify the token
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Get the user from Firestore to retrieve their GitHub access token
+        const userDoc = await admin.firestore().collection("users").doc(decoded.githubId.toString()).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        
+        const userData = userDoc.data();
+        const accessToken = userData.accessToken;
+        
+        if (!accessToken) {
+            return res.status(400).json({ error: "GitHub access token not found" });
+        }
+        
+        // Fetch repositories from GitHub API using the stored access token
+        const reposResponse = await axios.get("https://api.github.com/user/repos", {
+            headers: { Authorization: `token ${accessToken}` },
+            params: {
+                sort: "updated",
+                per_page: 100,
+            },
+        });
+        
+        res.json(reposResponse.data);
+    } catch (error) {
+        console.error("Error fetching GitHub repositories:", error);
+        res.status(500).json({ error: "Failed to fetch repositories" });
+    }
+});
+
 module.exports = functions.https.onRequest(app);
