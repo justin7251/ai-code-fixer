@@ -206,26 +206,35 @@ app.get("/github/callback", async (req, res) => {
                 uid: githubUser.id.toString(),
                 githubId: githubUser.id,
                 username: githubUser.login,
-                email: email,
+                email,
                 role,
                 avatarUrl: githubUser.avatar_url,
-                accessToken,
                 provider: "github"
             },
             process.env.JWT_SECRET || "your-jwt-secret",
             { expiresIn: "7d" }
         );
-
-        // Log successful authentication
-        console.log(`User ${githubUser.login} (${githubUser.id}) authenticated successfully`);
         
-        // Redirect to the client with the token in the URL
-        // The client will store this in localStorage
-        return res.redirect(`${FRONTEND_URL}/auth-callback?token=${encodeURIComponent(jwtToken)}`);
+        // Set secure HTTP-only cookie
+        res.cookie("auth_token", jwtToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "Lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
         
+        // Redirect to frontend dashboard (no token in URL)
+        return res.redirect(`${FRONTEND_URL}/dashboard`);        
     } catch (error) {
         console.error("GitHub OAuth error:", error);
-        return res.redirect(`${FRONTEND_URL}/error?message=Authentication+failed&details=${encodeURIComponent(error.message)}`);
+        res.cookie("auth_error", "Authentication failed. Please try again.", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "Lax",
+            maxAge: 5000,
+        });
+    
+        return res.redirect(`${FRONTEND_URL}/error`);
     }
 });
 
