@@ -6,7 +6,16 @@ const admin = require("firebase-admin");
 const {authenticateUser, authorizeAdmin} = require("../middlewares/authMiddleware");
 
 const app = express();
-app.use(cors({origin: "https://ai-code-fixer.web.app", credentials: true}));
+
+const corsOptions = {
+    origin: ["https://ai-code-fixer.web.app", "http://localhost:5000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Public route (any authenticated user can access)

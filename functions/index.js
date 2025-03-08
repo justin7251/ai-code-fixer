@@ -45,12 +45,33 @@ app.use(
     }),
 );
 
+// Log which credentials are being used
+const isDev = process.env.FUNCTIONS_EMULATOR === 'true';
+console.log('[DEBUG] Running in:', isDev ? 'LOCAL EMULATOR' : 'PRODUCTION');
+
+// Make sure to use the right credentials
+const githubClientID = isDev 
+    ? (process.env.DEV_GITHUB_CLIENT_ID || config.github.dev_client_id) 
+    : (process.env.GITHUB_CLIENT_ID || config.github.client_id);
+
+const githubClientSecret = isDev
+    ? (process.env.DEV_GITHUB_CLIENT_SECRET || config.github.dev_client_secret)
+    : (process.env.GITHUB_CLIENT_SECRET || config.github.client_secret);
+
+console.log('[DEBUG] GitHub Client ID (first 4 chars):', githubClientID.substring(0, 4));
+console.log('[DEBUG] GitHub Client Secret (length):', githubClientSecret?.length);
+
+const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+const callbackURL = isEmulator 
+    ? "http://localhost:5001/ai-code-fixer/us-central1/auth/github/callback"
+    : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/callback";
+
 passport.use(
     new GitHubStrategy(
         {
-            clientID: config.github.client_id,
-            clientSecret: config.github.client_secret,
-            callbackURL: "https://us-central1-ai-code-fixer.cloudfunctions.net/app/auth/github/callback",
+            clientID: githubClientID,
+            clientSecret: githubClientSecret,
+            callbackURL: callbackURL,
         },
         (accessToken, refreshToken, profile, done) => {
             return done(null, {profile, accessToken});
