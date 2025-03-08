@@ -1,9 +1,8 @@
 import { useAuth } from '@/context/AuthProvider';
 import Link from 'next/link';
-import Image from 'next/image';
 
 export default function Navbar() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, loading, logout } = useAuth();
 
   const url = "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/login";
 
@@ -18,17 +17,27 @@ export default function Navbar() {
           </div>
           
           <div className="flex items-center">
-            {user ? (
+            {loading ? (
+              <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse"></div>
+            ) : user ? (
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
-                  <Image
-                    src={user.avatar_url}
-                    alt="Profile"
-                    width={32}
-                    height={32}
-                    className="rounded-full"
-                  />
-                  <span className="text-gray-700">{user.username}</span>
+                  {user.avatar_url ? (
+                    <img
+                      src={user.avatar_url}
+                      alt="Profile"
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
+                      <span className="text-gray-600 text-xs font-bold">
+                        {user.username?.charAt(0).toUpperCase() || '?'}
+                      </span>
+                    </div>
+                  )}
+                  <span className="text-gray-700">{user.username || 'User'}</span>
                 </div>
                 <button
                   onClick={logout}
