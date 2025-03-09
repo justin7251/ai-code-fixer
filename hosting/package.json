@@ -12,11 +12,13 @@
     "@types/next-auth": "^3.13.0",
     "axios": "^1.7.9",
     "cookie": "^1.0.2",
+    "firebase": "^11.4.0",
     "firebase-admin": "^11.11.1",
     "next": "latest",
     "next-auth": "^4.24.11",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.8",

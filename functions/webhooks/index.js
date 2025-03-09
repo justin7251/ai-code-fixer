@@ -3,7 +3,16 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
-app.use(cors({origin: "https://ai-code-fixer.web.app", credentials: true}));
+
+const corsOptions = {
+    origin: ["https://ai-code-fixer.web.app", "http://localhost:5000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.post("/github/webhook", (req, res) => {

@@ -4,6 +4,8 @@
   },
   "github": {
     "client_id": "Ov23liYKYd4Slwy2WhAa",
-    "client_secret": "335c38512f4f117c2b537f9866d3866ddda940e6"
+    "client_secret": "335c38512f4f117c2b537f9866d3866ddda940e6",
+    "dev_client_id": "Ov23li10g6WyXkBZNm7N",
+    "dev_client_secret": "ddc6be0030104a3673fda0da830d70af9cf083a5"
   }
 } 
