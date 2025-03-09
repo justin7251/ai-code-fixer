@@ -61,7 +61,7 @@ export default function RepoSelector() {
       }
     } catch (error) {
       console.error('Failed to fetch repositories:', error);
-      setError(`Failed to load repositories: ${error.message}`);
+      setError(`Failed to load repositories: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -71,16 +71,24 @@ export default function RepoSelector() {
   const handleSelectRepo = async (repo: Repository) => {
     try {
       setLoading(true);
+      setError('');
+      
       const isDev = process.env.NODE_ENV === 'development';
       const baseUrl = isDev
         ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
         : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
       
+      console.log('[DEBUG] Selecting repository:', repo.full_name);
+      
+      // Use mode: 'cors' and include all required headers
       const response = await fetch(`${baseUrl}/github/select-repo`, {
         method: 'POST',
+        mode: 'cors',
         credentials: 'include',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': window.location.origin
         },
         body: JSON.stringify({
           repoId: repo.id,
@@ -89,17 +97,23 @@ export default function RepoSelector() {
         })
       });
       
+      // Handle non-OK responses
       if (!response.ok) {
-        throw new Error(`Error selecting repository: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[DEBUG] Error response:', response.status, errorData);
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
       
-      // Save selection to state and localStorage
+      const data = await response.json();
+      console.log('[DEBUG] Selection successful:', data);
+      
+      // Update state and localStorage
       setSelectedRepo(repo);
       localStorage.setItem('selectedRepo', JSON.stringify(repo));
       
     } catch (error) {
-      console.error('Failed to select repository:', error);
-      setError('Failed to select repository. Please try again.');
+      console.error('[DEBUG] Failed to select repository:', error);
+      setError(`Failed to select repository: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
