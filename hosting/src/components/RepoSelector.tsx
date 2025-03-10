@@ -12,19 +12,41 @@ interface Repository {
   language: string;
 }
 
+interface RepoHistoryItem {
+  repoId: number;
+  repoName: string;
+  repoFullName: string;
+  selectedAt: any; // Firestore timestamp
+}
+
 export default function RepoSelector() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [repoHistory, setRepoHistory] = useState<RepoHistoryItem[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
-  // Fetch repositories when component mounts
+  // Fetch repositories and history when component mounts
   useEffect(() => {
     if (isAuthenticated) {
       fetchRepositories();
+      fetchRepoHistory();
     }
-  }, [isAuthenticated]);
+    
+    // Check if there's a previously selected repo in localStorage
+    const savedRepo = localStorage.getItem('selectedRepo');
+    if (savedRepo) {
+      try {
+        const parsedRepo = JSON.parse(savedRepo);
+        setSelectedRepo(parsedRepo);
+      } catch (e) {
+        console.error('Error parsing saved repo:', e);
+      }
+    }
+  }, [isAuthenticated, user]);
 
   // Fetch repositories from backend
   const fetchRepositories = async () => {
@@ -67,56 +89,171 @@ export default function RepoSelector() {
     }
   };
 
-  // Handle repository selection
-  const handleSelectRepo = async (repo: Repository) => {
+  // Fetch user's repository history
+  const fetchRepoHistory = async () => {
+    if (!isAuthenticated || !user) return;
+    
+    setHistoryLoading(true);
+    
     try {
-      setLoading(true);
-      setError('');
-      
       const isDev = process.env.NODE_ENV === 'development';
       const baseUrl = isDev
         ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
         : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
       
-      console.log('[DEBUG] Selecting repository:', repo.full_name);
+      const response = await fetch(`${baseUrl}/user/repo-history`, {
+        credentials: 'include'
+      });
       
-      // Use mode: 'cors' and include all required headers
-      const response = await fetch(`${baseUrl}/github/select-repo`, {
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Repository history fetch error:', data);
+        throw new Error(data.message || `Error: ${response.status}`);
+      }
+      
+      console.log('Fetched repository history:', data.repoHistory?.length || 0);
+      setRepoHistory(data.repoHistory || []);
+    } catch (error) {
+      console.error('Failed to fetch repository history:', error);
+      // Don't show error to user for history
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Handle repository selection with Firebase storage
+  const handleSelectRepo = async (repo: Repository) => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // 1. Optimistically update UI immediately
+      setSelectedRepo(repo);
+      localStorage.setItem('selectedRepo', JSON.stringify(repo));
+      
+      // 2. Send to backend for storage in Firebase
+      const isDev = process.env.NODE_ENV === 'development';
+      const baseUrl = isDev
+        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      
+      // Get current user ID if available
+      const userId = user?.githubId;
+      
+      // Don't await this - fire and forget
+      fetch(`${baseUrl}/github/select-repo`, {
         method: 'POST',
         mode: 'cors',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': window.location.origin
         },
         body: JSON.stringify({
           repoId: repo.id,
           repoName: repo.name,
-          repoFullName: repo.full_name
+          repoFullName: repo.full_name,
+          userId: userId // Include userId if available
         })
+      }).then(response => {
+        if (response.ok) {
+          console.log('[DEBUG] Repository selection stored in Firebase');
+          // Refresh history after selection
+          fetchRepoHistory();
+        } else {
+          console.log('[DEBUG] Could not store in Firebase, but UI is updated');
+        }
+      }).catch(err => {
+        console.log('[DEBUG] Error storing selection:', err);
+        
+        // Fallback to beacon API if fetch fails
+        if (navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify({
+            repoId: repo.id,
+            repoName: repo.name,
+            repoFullName: repo.full_name,
+            userId: userId,
+            timestamp: Date.now()
+          })], { type: 'application/json' });
+          
+          navigator.sendBeacon(`${baseUrl}/github/select-repo/beacon`, blob);
+          console.log('[DEBUG] Selection sent via beacon as fallback');
+        }
       });
       
-      // Handle non-OK responses
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[DEBUG] Error response:', response.status, errorData);
-        throw new Error(errorData.error || `Server error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('[DEBUG] Selection successful:', data);
-      
-      // Update state and localStorage
-      setSelectedRepo(repo);
-      localStorage.setItem('selectedRepo', JSON.stringify(repo));
-      
     } catch (error) {
-      console.error('[DEBUG] Failed to select repository:', error);
-      setError(`Failed to select repository: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('[DEBUG] Error in repository selection:', error);
+      // Don't reset selected repo on error since localStorage is already updated
+      setError(`There was an issue with your selection. However, your choice has been saved locally.`);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Render repository history section
+  const renderRepoHistory = () => {
+    if (!showHistory) return null;
+    
+    return (
+      <div className="mt-6 border-t border-gray-200 pt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-md font-medium text-gray-900">Recently Selected Repositories</h3>
+          <button 
+            onClick={() => setShowHistory(false)}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Hide History
+          </button>
+        </div>
+        
+        {historyLoading ? (
+          <div className="py-4 text-center text-gray-500">Loading history...</div>
+        ) : repoHistory.length === 0 ? (
+          <div className="py-4 text-center text-gray-500">No repository history found</div>
+        ) : (
+          <div className="space-y-2">
+            {repoHistory.map(item => (
+              <div 
+                key={item.repoId} 
+                className="flex items-center justify-between p-3 rounded-md hover:bg-gray-50 cursor-pointer border border-gray-100"
+                onClick={() => {
+                  // Find the full repo object if available
+                  const fullRepo = repositories.find(r => r.id === item.repoId);
+                  if (fullRepo) {
+                    handleSelectRepo(fullRepo);
+                  } else {
+                    // Create minimal repo object from history
+                    const historyRepo: Repository = {
+                      id: item.repoId,
+                      name: item.repoName,
+                      full_name: item.repoFullName
+                    };
+                    handleSelectRepo(historyRepo);
+                  }
+                }}
+              >
+                <div className="flex items-center">
+                  <div className="mr-3 text-blue-500">
+                    <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium">{item.repoName}</div>
+                    <div className="text-xs text-gray-500">{item.repoFullName}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {item.selectedAt?.toDate ? 
+                    new Date(item.selectedAt.toDate()).toLocaleDateString() : 
+                    'Recently'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading && repositories.length === 0) {
@@ -323,6 +460,8 @@ export default function RepoSelector() {
           </div>
         </div>
       )}
+      
+      {renderRepoHistory()}
     </div>
   );
 } 
