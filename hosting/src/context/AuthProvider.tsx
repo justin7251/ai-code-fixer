@@ -222,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user, 
         user, 
         loading, 
-        login, 
+        login: login as () => Promise<void>,
         logout,
         refreshAuth: checkAuth
       }}
