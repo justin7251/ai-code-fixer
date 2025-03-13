@@ -10,6 +10,7 @@ interface Repository {
   default_branch: string;
   stars: number;
   language: string;
+  private: boolean;
 }
 
 interface RepoHistoryItem {
@@ -226,7 +227,13 @@ export default function RepoSelector() {
                     const historyRepo: Repository = {
                       id: item.repoId,
                       name: item.repoName,
-                      full_name: item.repoFullName
+                      full_name: item.repoFullName,
+                      description: '',
+                      url: '',
+                      default_branch: '',
+                      stars: 0,
+                      language: '',
+                      private: false,
                     };
                     handleSelectRepo(historyRepo);
                   }
