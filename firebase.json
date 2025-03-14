@@ -12,7 +12,8 @@
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint:fix"
-      ]
+      ],
+      "timeoutSeconds": 300
     }
   ],
   "hosting": {

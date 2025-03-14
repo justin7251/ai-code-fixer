@@ -24,6 +24,7 @@ const corsOptions = {
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(cookieParser());
 app.use(express.json());
 
@@ -67,8 +68,7 @@ if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !JWT_SECRET) {
     throw new Error("Missing required environment variables.");
 }
 
-// Admin users (Modify this list)
-const ADMIN_USERS = ["your-github-username"];
+// const ADMIN_USERS = ["justin7251"];
 
 // Rate limiting middleware
 const limiter = rateLimit({
@@ -95,129 +95,133 @@ app.use(session({
 
 // Updated GitHub auth setup
 const setupAuth = (app) => {
-  // Configure GitHub strategy with explicit scope
-  passport.use(new GitHubStrategy({
-    clientID: GITHUB_CLIENT_ID,
-    clientSecret: GITHUB_CLIENT_SECRET,
-    callbackURL: GITHUB_CALLBACK_URL,
-    scope: ['user:email', 'repo'], // Required scopes for repo access
-    passReqToCallback: true
-  },
-  function(req, accessToken, refreshToken, profile, done) {
-    console.log('[DEBUG] GitHub OAuth callback received');
-    console.log('[DEBUG] Profile username:', profile.username);
-    console.log('[DEBUG] Access token received:', accessToken ? 'Yes' : 'No');
+    // Configure GitHub strategy with explicit scope
+    passport.use(new GitHubStrategy({
+        clientID: GITHUB_CLIENT_ID,
+        clientSecret: GITHUB_CLIENT_SECRET,
+        callbackURL: GITHUB_CALLBACK_URL,
+        scope: ['user:email', 'repo'], // Required scopes for repo access
+        passReqToCallback: true,
+    },
+    function(req, accessToken, refreshToken, profile, done) {
+        console.log('[DEBUG] GitHub OAuth callback received');
+        console.log('[DEBUG] Profile username:', profile.username);
+        console.log('[DEBUG] Access token received:', accessToken ? 'Yes' : 'No');
     
-    // Store both profile and token
-    return done(null, {
-      profile: profile,
-      accessToken: accessToken
-    });
-  }));
+        // Store both profile and token
+        return done(null, {
+            profile: profile,
+            accessToken: accessToken,
+        });
+    }));
   
-  app.use(passport.initialize());
-}
+    app.use(passport.initialize());
+};
 
 // Initialize passport with GitHub strategy 
 setupAuth(app);
 
 // GitHub login route - make sure the path is correct
 app.get('/github/login', (req, res, next) => {
-  console.log('[DEBUG] GitHub login route accessed');
+    console.log('[DEBUG] GitHub login route accessed');
   
-  passport.authenticate('github', { 
-    scope: ['user:email', 'repo'],
-    session: false
-  })(req, res, next);
+    passport.authenticate('github', { 
+        scope: ['user:email', 'repo'],
+        session: false,
+    })(req, res, next);
 });
 
 // GitHub callback route
 app.get('/github/callback', (req, res, next) => {
-  console.log('[DEBUG] GitHub callback received');
+    console.log('[DEBUG] GitHub callback received');
   
-  passport.authenticate('github', { 
-    failureRedirect: `${FRONTEND_URL}/error?message=GitHub+authentication+failed`,
-    session: false
-  }, (err, user, info) => {
-    if (err) {
-      console.error('[DEBUG] Passport error:', err);
-      return res.redirect(`${FRONTEND_URL}/error?message=Authentication+error:+${encodeURIComponent(err.message)}`);
-    }
+    passport.authenticate('github', { 
+        failureRedirect: `${FRONTEND_URL}/error?message=GitHub+authentication+failed`,
+        session: false,
+    }, (err, user, info) => {
+        if (err) {
+            console.error('[DEBUG] Passport error:', err);
+            return res.redirect(
+                `${FRONTEND_URL}/error?message=Authentication+error:+${encodeURIComponent(err.message)}`,
+            );
+        }
     
-    if (!user) {
-      console.error('[DEBUG] No user returned from GitHub');
-      return res.redirect(`${FRONTEND_URL}/error?message=Authentication+failed:+${encodeURIComponent(info?.message || 'Unknown error')}`);
-    }
+        if (!user) {
+            console.error('[DEBUG] No user returned from GitHub');
+            return res.redirect(
+                `${FRONTEND_URL}/error?message=Authentication+failed:+
+              ${encodeURIComponent(info?.message || 'Unknown error')}`);
+        }
     
-    // Verify we have both profile and token
-    if (!user.profile || !user.accessToken) {
-      console.error('[DEBUG] Missing profile or token:', 
-        { hasProfile: !!user.profile, hasToken: !!user.accessToken });
-      return res.redirect(`${FRONTEND_URL}/error?message=Incomplete+authentication+data`);
-    }
+        // Verify we have both profile and token
+        if (!user.profile || !user.accessToken) {
+            console.error('[DEBUG] Missing profile or token:', 
+                {hasProfile: !!user.profile, hasToken: !!user.accessToken});
+            return res.redirect(`${FRONTEND_URL}/error?message=Incomplete+authentication+data`);
+        }
     
-    try {
-      console.log('[DEBUG] GitHub auth successful for:', user.profile.username);
-      console.log('[DEBUG] Token available:', !!user.accessToken);
+        try {
+            console.log('[DEBUG] GitHub auth successful for:', user.profile.username);
+            console.log('[DEBUG] Token available:', !!user.accessToken);
       
-      // Create JWT with GitHub token
-      const token = jwt.sign(
-        { 
-          githubId: user.profile.id,
-          username: user.profile.username,
-          timestamp: Date.now(),
-          githubToken: user.accessToken // Make sure token is included
-        }, 
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+            // Create JWT with GitHub token
+            const token = jwt.sign(
+                { 
+                    githubId: user.profile.id,
+                    username: user.profile.username,
+                    timestamp: Date.now(),
+                    githubToken: user.accessToken, // Make sure token is included
+                }, 
+                JWT_SECRET,
+                {expiresIn: '7d'},
+            );
       
-      // For debugging: verify the token was created with githubToken
-      const decoded = jwt.verify(token, JWT_SECRET);
-      console.log('[DEBUG] JWT created with githubToken:', !!decoded.githubToken);
+            // For debugging: verify the token was created with githubToken
+            const decoded = jwt.verify(token, JWT_SECRET);
+            console.log('[DEBUG] JWT created with githubToken:', !!decoded.githubToken);
       
-      // Set auth token cookie
-      res.cookie('auth_token', token, {
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
-        httpOnly: true,
-        secure: !isEmulator,
-        sameSite: 'lax'
-      });
+            // Set auth token cookie
+            res.cookie('auth_token', token, {
+                maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
+                httpOnly: true,
+                secure: !isEmulator,
+                sameSite: 'lax',
+            });
       
-      // Set user data cookie
-      const userData = {
-        githubId: user.profile.id,
-        username: user.profile.username,
-        name: user.profile.displayName || user.profile.username,
-        avatar_url: user.profile._json?.avatar_url
-      };
+            // Set user data cookie
+            const userData = {
+                githubId: user.profile.id,
+                username: user.profile.username,
+                name: user.profile.displayName || user.profile.username,
+                avatar_url: user.profile._json?.avatar_url,
+            };
       
-      res.cookie('user_data', JSON.stringify(userData), {
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        httpOnly: false,
-        secure: !isEmulator,
-        sameSite: 'lax'
-      });
+            res.cookie('user_data', JSON.stringify(userData), {
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                httpOnly: false,
+                secure: !isEmulator,
+                sameSite: 'lax',
+            });
       
-      console.log('[DEBUG] Auth successful, redirecting to dashboard');
-      return res.redirect(`${FRONTEND_URL}/dashboard`);
-    } catch (error) {
-      console.error('[DEBUG] Error in callback:', error);
-      return res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(error.message)}`);
-    }
-  })(req, res, next);
+            console.log('[DEBUG] Auth successful, redirecting to dashboard');
+            return res.redirect(`${FRONTEND_URL}/dashboard`);
+        } catch (error) {
+            console.error('[DEBUG] Error in callback:', error);
+            return res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(error.message)}`);
+        }
+    })(req, res, next);
 });
 
 // Add login route - alternative for testing
 app.get('/login', (req, res) => {
-  console.log('[DEBUG] Login route accessed directly');
-  res.redirect('/github/login');
+    console.log('[DEBUG] Login route accessed directly');
+    res.redirect('/github/login');
 });
 
 // Add a catch-all error handler
-app.use((err, req, res, next) => {
-  console.error('Auth error:', err);
-  res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(err.message)}`);
+app.use((err, req, res) => {
+    console.error('Auth error:', err);
+    res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(err.message)}`);
 });
 
 // Logout route
@@ -391,315 +395,307 @@ app.get("/verify-session", async (req, res) => {
 
 // Add this new endpoint for token verification
 app.get('/verify-session', (req, res) => {
-  console.log('[DEBUG] Verify session request received');
+    console.log('[DEBUG] Verify session request received');
   
-  // Check for auth_token cookie
-  if (!req.cookies || !req.cookies.auth_token) {
-    console.log('[DEBUG] No auth_token cookie found');
-    return res.status(401).json({ authenticated: false });
-  }
+    // Check for auth_token cookie
+    if (!req.cookies || !req.cookies.auth_token) {
+        console.log('[DEBUG] No auth_token cookie found');
+        return res.status(401).json({authenticated: false});
+    }
   
-  try {
+    try {
     // Verify the JWT token (if you're using JWT)
-    const token = req.cookies.auth_token;
-    const decoded = jwt.verify(token, JWT_SECRET);
+        const token = req.cookies.auth_token;
+        const decoded = jwt.verify(token, JWT_SECRET);
     
-    console.log('[DEBUG] Token verified for user:', decoded.username);
+        console.log('[DEBUG] Token verified for user:', decoded.username);
     
-    // Return user data
-    return res.json({
-      authenticated: true,
-      githubId: decoded.githubId,
-      username: decoded.username,
-      timestamp: decoded.timestamp
-    });
-  } catch (error) {
-    console.error('[DEBUG] Token verification error:', error);
-    return res.status(401).json({ 
-      authenticated: false, 
-      error: error.message 
-    });
-  }
+        // Return user data
+        return res.json({
+            authenticated: true,
+            githubId: decoded.githubId,
+            username: decoded.username,
+            timestamp: decoded.timestamp,
+        });
+    } catch (error) {
+        console.error('[DEBUG] Token verification error:', error);
+        return res.status(401).json({ 
+            authenticated: false, 
+            error: error.message, 
+        });
+    }
 });
 
 // Add a logout endpoint
 app.get('/logout', (req, res) => {
-  console.log('[DEBUG] Logout request received');
+    console.log('[DEBUG] Logout request received');
   
-  // Clear auth cookies
-  res.clearCookie('auth_token');
-  res.clearCookie('user_data');
+    // Clear auth cookies
+    res.clearCookie('auth_token');
+    res.clearCookie('user_data');
   
-  // Respond with success
-  res.json({ success: true });
+    // Respond with success
+    res.json({success: true});
 });
 
 // Fix GitHub repos endpoint to use axios instead of fetch
 app.get('/github/repos', async (req, res) => {
-  console.log('[DEBUG] Fetch repos request received');
+    console.log('[DEBUG] Fetch repos request received');
   
-  // Check for auth_token cookie
-  if (!req.cookies || !req.cookies.auth_token) {
-    console.log('[DEBUG] No auth_token cookie found');
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  
-  try {
-    // Get the JWT token and decode it
-    const jwtToken = req.cookies.auth_token;
-    const decoded = jwt.verify(jwtToken, JWT_SECRET);
-    
-    // Extract GitHub token from decoded JWT
-    const githubToken = decoded.githubToken;
-    
-    if (!githubToken) {
-      console.error('[DEBUG] No GitHub token found in JWT');
-      return res.status(401).json({ error: 'GitHub token not found, please log in again' });
+    // Check for auth_token cookie
+    if (!req.cookies || !req.cookies.auth_token) {
+        console.log('[DEBUG] No auth_token cookie found');
+        return res.status(401).json({error: 'Authentication required'});
     }
-    
-    console.log('[DEBUG] Using GitHub token for user:', decoded.username);
-    
-    // Fetch repositories from GitHub API with axios
+  
     try {
-      const response = await axios.get('https://api.github.com/user/repos', {
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'AI-Code-Fixer-App'
-        },
-        params: {
-          sort: 'updated',
-          per_page: 100
+    // Get the JWT token and decode it
+        const jwtToken = req.cookies.auth_token;
+        const decoded = jwt.verify(jwtToken, JWT_SECRET);
+    
+        // Extract GitHub token from decoded JWT
+        const githubToken = decoded.githubToken;
+    
+        if (!githubToken) {
+            console.error('[DEBUG] No GitHub token found in JWT');
+            return res.status(401).json({error: 'GitHub token not found, please log in again'});
         }
-      });
+    
+        console.log('[DEBUG] Using GitHub token for user:', decoded.username);
+    
+        // Fetch repositories from GitHub API with axios
+        try {
+            const response = await axios.get('https://api.github.com/user/repos', {
+                headers: {
+                    'Authorization': `token ${githubToken}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'AI-Code-Fixer-App',
+                },
+                params: {
+                    sort: 'updated',
+                    per_page: 100,
+                },
+            });
       
-      console.log('[DEBUG] Fetched', response.data.length, 'repositories');
+            console.log('[DEBUG] Fetched', response.data.length, 'repositories');
       
-      // Format and return repositories
-      const formattedRepos = response.data.map(repo => ({
-        id: repo.id,
-        name: repo.name,
-        full_name: repo.full_name,
-        description: repo.description,
-        url: repo.html_url,
-        default_branch: repo.default_branch,
-        stars: repo.stargazers_count,
-        language: repo.language
-      }));
+            // Format and return repositories
+            const formattedRepos = response.data.map(repo => ({
+                id: repo.id,
+                name: repo.name,
+                full_name: repo.full_name,
+                description: repo.description,
+                url: repo.html_url,
+                default_branch: repo.default_branch,
+                stars: repo.stargazers_count,
+                language: repo.language,
+            }));
       
-      return res.json({ repositories: formattedRepos });
-    } catch (apiError) {
-      console.error('[DEBUG] GitHub API error:', apiError.response?.status, apiError.response?.data);
-      throw new Error(`GitHub API error: ${apiError.response?.status || apiError.message}`);
+            return res.json({repositories: formattedRepos});
+        } catch (apiError) {
+            console.error('[DEBUG] GitHub API error:', apiError.response?.status, apiError.response?.data);
+            throw new Error(`GitHub API error: ${apiError.response?.status || apiError.message}`);
+        }
+    } catch (error) {
+        console.error('[DEBUG] Error fetching repos:', error);
+        return res.status(500).json({error: error.message});
     }
-  } catch (error) {
-    console.error('[DEBUG] Error fetching repos:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/ping', (req, res) => {
-  console.log('[DEBUG] Ping request received from:', req.headers.origin);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Cache-Control', 'no-cache, no-store');
-  res.status(200).send('pong');
 });
 
 // Replace the existing select-repo endpoint with this implementation
 app.post('/github/select-repo', async (req, res) => {
-  // Set proper CORS headers
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, Origin');
+    // Set proper CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, Origin');
   
-  console.log('[DEBUG] Repository selection request received');
+    console.log('[DEBUG] Repository selection request received');
   
-  try {
+    try {
     // Get user authentication
-    const token = 
+        const token = 
       (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
           ? req.headers.authorization.substring(7) : null) ||
       req.cookies.auth_token;
     
-    if (!token) {
-      console.log('[DEBUG] No authentication token found');
-      // Still return success for UI to work, but don't store
-      return res.status(200).json({
-        success: true,
-        stored: false,
-        message: 'Selection recorded locally only (no auth token)'
-      });
+        if (!token) {
+            console.log('[DEBUG] No authentication token found');
+            // Still return success for UI to work, but don't store
+            return res.status(200).json({
+                success: true,
+                stored: false,
+                message: 'Selection recorded locally only (no auth token)',
+            });
+        }
+    
+        // Get repo data from request
+        const {repoId, repoName, repoFullName} = req.body;
+    
+        if (!repoId || !repoName || !repoFullName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing repository information',
+            });
+        }
+    
+        // Verify user from token
+        let userId;
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            userId = decoded.githubId;
+            console.log('[DEBUG] User identified:', userId);
+        } catch (tokenError) {
+            console.error('[DEBUG] Token verification failed:', tokenError);
+            // Still return success for UI to work
+            return res.status(200).json({
+                success: true,
+                stored: false,
+                message: 'Selection recorded locally only (invalid token)',
+            });
+        }
+    
+        // Store in Firestore
+        const db = admin.firestore();
+    
+        // 1. Add to user's selected repos collection
+        await db.collection('users').doc(String(userId)).collection('selectedRepos').doc(String(repoId)).set({
+            repoId,
+            repoName,
+            repoFullName,
+            selectedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    
+        // 2. Update user document with last selected repo
+        await db.collection('users').doc(String(userId)).update({
+            lastSelectedRepo: {
+                repoId,
+                repoName,
+                repoFullName,
+                selectedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+        });
+    
+        console.log('[DEBUG] Repository selection stored for user:', userId);
+    
+        return res.status(200).json({
+            success: true,
+            stored: true,
+            message: 'Repository selection recorded successfully',
+        });
+    
+    } catch (error) {
+        console.error('[DEBUG] Error storing repository selection:', error);
+    
+        // Even on error, still set CORS headers and return "success" for UI
+        return res.status(200).json({
+            success: true,
+            stored: false,
+            message: 'Selection recorded locally only (server error)',
+        });
     }
-    
-    // Get repo data from request
-    const { repoId, repoName, repoFullName } = req.body;
-    
-    if (!repoId || !repoName || !repoFullName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing repository information'
-      });
-    }
-    
-    // Verify user from token
-    let userId;
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      userId = decoded.githubId;
-      console.log('[DEBUG] User identified:', userId);
-    } catch (tokenError) {
-      console.error('[DEBUG] Token verification failed:', tokenError);
-      // Still return success for UI to work
-      return res.status(200).json({
-        success: true,
-        stored: false,
-        message: 'Selection recorded locally only (invalid token)'
-      });
-    }
-    
-    // Store in Firestore
-    const db = admin.firestore();
-    
-    // 1. Add to user's selected repos collection
-    await db.collection('users').doc(String(userId)).collection('selectedRepos').doc(String(repoId)).set({
-      repoId,
-      repoName,
-      repoFullName,
-      selectedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    
-    // 2. Update user document with last selected repo
-    await db.collection('users').doc(String(userId)).update({
-      lastSelectedRepo: {
-        repoId,
-        repoName,
-        repoFullName,
-        selectedAt: admin.firestore.FieldValue.serverTimestamp()
-      }
-    });
-    
-    console.log('[DEBUG] Repository selection stored for user:', userId);
-    
-    return res.status(200).json({
-      success: true,
-      stored: true,
-      message: 'Repository selection recorded successfully'
-    });
-    
-  } catch (error) {
-    console.error('[DEBUG] Error storing repository selection:', error);
-    
-    // Even on error, still set CORS headers and return "success" for UI
-    return res.status(200).json({
-      success: true,
-      stored: false,
-      message: 'Selection recorded locally only (server error)'
-    });
-  }
 });
 
 // Add a beacon endpoint for browsers that can't handle CORS
 app.post('/github/select-repo/beacon', (req, res) => {
-  // Process and store repo selection from beacon data
-  const data = req.body;
-  console.log('[DEBUG] Beacon data received:', data);
+    // Process and store repo selection from beacon data
+    const data = req.body;
+    console.log('[DEBUG] Beacon data received:', data);
   
-  // Process the same way as the main endpoint but asynchronously
-  // No need to respond with success/failure as beacon doesn't wait for response
-  try {
-    const { repoId, repoName, repoFullName, userId } = data;
+    // Process the same way as the main endpoint but asynchronously
+    // No need to respond with success/failure as beacon doesn't wait for response
+    try {
+        const {repoId, repoName, repoFullName, userId} = data;
     
-    if (repoId && repoName && repoFullName && userId) {
-      // Store in Firestore async (don't await)
-      const db = admin.firestore();
+        if (repoId && repoName && repoFullName && userId) {
+            // Store in Firestore async (don't await)
+            const db = admin.firestore();
       
-      db.collection('users').doc(String(userId)).collection('selectedRepos').doc(String(repoId)).set({
-        repoId,
-        repoName,
-        repoFullName,
-        selectedAt: admin.firestore.FieldValue.serverTimestamp()
-      }).catch(err => console.error('[DEBUG] Beacon storage error:', err));
+            db.collection('users').doc(String(userId)).collection('selectedRepos').doc(String(repoId)).set({
+                repoId,
+                repoName,
+                repoFullName,
+                selectedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }).catch(err => console.error('[DEBUG] Beacon storage error:', err));
       
-      // Update last selected repo
-      db.collection('users').doc(String(userId)).update({
-        lastSelectedRepo: {
-          repoId,
-          repoName,
-          repoFullName,
-          selectedAt: admin.firestore.FieldValue.serverTimestamp()
+            // Update last selected repo
+            db.collection('users').doc(String(userId)).update({
+                lastSelectedRepo: {
+                    repoId,
+                    repoName,
+                    repoFullName,
+                    selectedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+            }).catch(err => console.error('[DEBUG] User update error:', err));
         }
-      }).catch(err => console.error('[DEBUG] User update error:', err));
+    } catch (error) {
+        console.error('[DEBUG] Error processing beacon data:', error);
     }
-  } catch (error) {
-    console.error('[DEBUG] Error processing beacon data:', error);
-  }
   
-  // Always send 200 response for beacons
-  res.status(200).end();
+    // Always send 200 response for beacons
+    res.status(200).end();
 });
 
 // Add endpoint to fetch user's repository history
 app.get('/user/repo-history', async (req, res) => {
-  // Set CORS headers
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
   
-  try {
+    try {
     // Get user authentication
-    const token = 
+        const token = 
       (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
           ? req.headers.authorization.substring(7) : null) ||
       req.cookies.auth_token;
     
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required',
+            });
+        }
+    
+        // Verify user from token
+        let userId;
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            userId = decoded.githubId;
+        } catch (tokenError) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid authentication token',
+            });
+        }
+    
+        // Fetch from Firestore
+        const db = admin.firestore();
+        const reposSnapshot = await db.collection('users').doc(String(userId))
+            .collection('selectedRepos')
+            .orderBy('selectedAt', 'desc')
+            .limit(10)
+            .get();
+    
+        const repoHistory = [];
+        reposSnapshot.forEach(doc => {
+            repoHistory.push({
+                id: doc.id,
+                ...doc.data(),
+            });
+        });
+    
+        return res.status(200).json({
+            success: true,
+            repoHistory,
+        });
+    
+    } catch (error) {
+        console.error('[DEBUG] Error fetching repo history:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve repository history',
+        });
     }
-    
-    // Verify user from token
-    let userId;
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      userId = decoded.githubId;
-    } catch (tokenError) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid authentication token'
-      });
-    }
-    
-    // Fetch from Firestore
-    const db = admin.firestore();
-    const reposSnapshot = await db.collection('users').doc(String(userId))
-      .collection('selectedRepos')
-      .orderBy('selectedAt', 'desc')
-      .limit(10)
-      .get();
-    
-    const repoHistory = [];
-    reposSnapshot.forEach(doc => {
-      repoHistory.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    
-    return res.status(200).json({
-      success: true,
-      repoHistory
-    });
-    
-  } catch (error) {
-    console.error('[DEBUG] Error fetching repo history:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve repository history'
-    });
-  }
 });
 
 // Call setupAuth before exporting the app
