@@ -1,8 +1,10 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+
 const {v4: uuidv4} = require('uuid');
 const {Octokit} = require('@octokit/rest');
 const cors = require('cors')({origin: true, credentials: true});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret';
 const jwt = require('jsonwebtoken');
 
@@ -455,7 +457,6 @@ async function analyzeFile(filePath, content, fileType) {
             }
         }
     }
-  
     return issues;
 }
 
