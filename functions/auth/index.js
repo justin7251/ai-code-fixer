@@ -118,7 +118,7 @@ const setupAuth = (app) => {
     app.use(passport.initialize());
 };
 
-// Initialize passport with GitHub strategy 
+// Initialize passport only once
 setupAuth(app);
 
 // GitHub login route - make sure the path is correct
@@ -218,10 +218,15 @@ app.get('/login', (req, res) => {
     res.redirect('/github/login');
 });
 
-// Add a catch-all error handler
-app.use((err, req, res) => {
+// Add a catch-all error handler - FIXED with four parameters
+app.use((err, req, res, next) => {
     console.error('Auth error:', err);
-    res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(err.message)}`);
+    // Use res.status().json() instead of redirect for API error handling
+    return res.status(500).json({
+        success: false,
+        error: 'Server error',
+        message: err.message
+    });
 });
 
 // Logout route
@@ -277,165 +282,92 @@ app.get("/github-repos", async (req, res) => {
     }
 });
 
-// Modify verify-session to work with both cookie and Authorization header
-// Verify Session Endpoint
-app.get("/verify-session", async (req, res) => {
-    try {
-        // Get token from various sources (ordered by priority)
-        const token = 
-            // 1. From Authorization header (Bearer token)
-            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
-                ? req.headers.authorization.substring(7) : null) ||
-            // 2. From JWT query parameter
-            req.query.jwt ||
-            // 3. From auth_token cookie
-            req.cookies.auth_token ||
-            // 4. From session_token cookie (legacy)
-            req.cookies.session_token;
-        
-        if (!token) {
-            return res.status(401).json({ 
-                authenticated: false,
-                error: "No authentication token provided", 
-            });
-        }
-
-        // Verify JWT token
-        try {
-            const decoded = jwt.verify(token, JWT_SECRET);
-            
-            // Check if token is expired (additional check)
-            const now = Date.now();
-            const tokenTimestamp = decoded.timestamp || 0;
-            const tokenAge = now - tokenTimestamp;
-            const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-            
-            if (tokenAge > maxAge) {
-                return res.status(401).json({ 
-                    authenticated: false,
-                    error: "Token expired", 
-                });
-            }
-            
-            // Get latest user data from Firestore
-            const userDoc = await admin.firestore().collection("users").doc(decoded.githubId.toString()).get();
-            
-            if (!userDoc.exists) {
-                return res.status(401).json({ 
-                    authenticated: false,
-                    error: "User not found in database", 
-                });
-            }
-            
-            const userData = userDoc.data();
-            
-            // Return user data and authentication status
-            return res.status(200).json({
-                authenticated: true,
-                githubId: userData.githubId,
-                username: userData.username,
-                name: userData.name || userData.username,
-                email: userData.email,
-                avatar_url: userData.avatar_url,
-                role: userData.role || "user",
-                timestamp: now,
-            });
-        } catch (jwtError) {
-            console.error("JWT verification error:", jwtError);
-            
-            // If JWT verification fails, try to verify Firebase ID token
-            try {
-                // Check if token might be a Firebase ID token
-                if (token.length > 500) {
-                    const decodedToken = await admin.auth().verifyIdToken(token);
-                    const uid = decodedToken.uid;
-                    
-                    // If UID is in GitHub format (github_USERID)
-                    if (uid.startsWith('github_') && uid.length > 7) {
-                        const githubId = uid.substring(7);
-                        const userDoc = await admin.firestore().collection("users").doc(githubId).get();
-                        
-                        if (userDoc.exists) {
-                            const userData = userDoc.data();
-                            return res.status(200).json({
-                                authenticated: true,
-                                githubId: userData.githubId,
-                                username: userData.username,
-                                name: userData.name || userData.username,
-                                email: userData.email,
-                                avatar_url: userData.avatar_url,
-                                role: userData.role || "user",
-                                timestamp: Date.now(),
-                            });
-                        }
-                    }
-                }
-                
-                // If we get here, Firebase token verification didn't help
-                return res.status(401).json({ 
-                    authenticated: false,
-                    error: "Invalid authentication token", 
-                });
-            } catch (firebaseError) {
-                console.error("Firebase token verification error:", firebaseError);
-                return res.status(401).json({ 
-                    authenticated: false,
-                    error: "Invalid authentication token", 
-                });
-            }
-        }
-    } catch (error) {
-        console.error("Session verification error:", error);
-        return res.status(500).json({ 
-            authenticated: false,
-            error: "Internal server error during authentication", 
-        });
-    }
-});
-
-// Add this new endpoint for token verification
+// Simpler, production-friendly verify-session endpoint
 app.get('/verify-session', (req, res) => {
-    console.log('[DEBUG] Verify session request received');
+  // Set CORS headers
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
-    // Check for auth_token cookie
-    if (!req.cookies || !req.cookies.auth_token) {
-        console.log('[DEBUG] No auth_token cookie found');
-        return res.status(401).json({authenticated: false});
+  console.log('[DEBUG] Simple verify session request received');
+  
+  try {
+    // Get token from various sources
+    const token = 
+      (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+        ? req.headers.authorization.substring(7) : null) ||
+      req.cookies.auth_token ||
+      req.cookies.auth_client;
+    
+    if (!token) {
+      return res.status(401).json({ 
+        authenticated: false,
+        error: "No authentication token found"
+      });
     }
-  
+    
+    // Verify JWT token - this is the only critical operation
     try {
-    // Verify the JWT token (if you're using JWT)
-        const token = req.cookies.auth_token;
-        const decoded = jwt.verify(token, JWT_SECRET);
-    
-        console.log('[DEBUG] Token verified for user:', decoded.username);
-    
-        // Return user data
-        return res.json({
-            authenticated: true,
-            githubId: decoded.githubId,
-            username: decoded.username,
-            timestamp: decoded.timestamp,
-        });
-    } catch (error) {
-        console.error('[DEBUG] Token verification error:', error);
-        return res.status(401).json({ 
-            authenticated: false, 
-            error: error.message, 
-        });
+      const decoded = jwt.verify(token, JWT_SECRET);
+      
+      // Return minimal user data directly from token
+      return res.status(200).json({
+        authenticated: true,
+        githubId: decoded.githubId,
+        username: decoded.username,
+        timestamp: Date.now()
+      });
+    } catch (jwtError) {
+      console.error('[DEBUG] JWT verification error:', jwtError.message);
+      return res.status(401).json({
+        authenticated: false,
+        error: "Invalid token"
+      });
     }
+  } catch (error) {
+    console.error('[DEBUG] Verification error:', error.message);
+    return res.status(500).json({
+      authenticated: false,
+      error: "Server error"
+    });
+  }
 });
 
-// Add a logout endpoint
+// Add a proper logout endpoint (replacing both previous ones)
 app.get('/logout', (req, res) => {
-    console.log('[DEBUG] Logout request received');
+  // Set CORS headers for logout
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   
-    // Clear auth cookies
-    res.clearCookie('auth_token');
-    res.clearCookie('user_data');
+  console.log('[DEBUG] Logout request received');
+  console.log('[DEBUG] Cookies before clearing:', req.cookies);
   
-    // Respond with success
-    res.json({success: true});
+  // Clear all auth cookies with various possible domain patterns
+  const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
+  
+  cookiesToClear.forEach(cookieName => {
+    // Clear with default path/domain
+    res.clearCookie(cookieName);
+    
+    // Clear with explicit path
+    res.clearCookie(cookieName, { path: '/' });
+    
+    // For production environment, clear with domain
+    if (!isEmulator) {
+      const domain = '.ai-code-fixer.web.app';
+      res.clearCookie(cookieName, { path: '/', domain });
+    }
+  });
+  
+  console.log('[DEBUG] Cookies cleared');
+  
+  // Respond with success
+  res.status(200).json({
+    success: true,
+    message: 'Logged out successfully'
+  });
 });
 
 // Fix GitHub repos endpoint to use axios instead of fetch
@@ -698,7 +630,5 @@ app.get('/user/repo-history', async (req, res) => {
     }
 });
 
-// Call setupAuth before exporting the app
-setupAuth(app);
-
+// Make sure we have only one export
 module.exports = functions.https.onRequest(app);
