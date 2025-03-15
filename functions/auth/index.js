@@ -229,15 +229,64 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Logout route
-app.get("/logout", (req, res) => {
-    res.clearCookie("session_token", {
-        httpOnly: true,
-        secure: true,
-        sameSite: "none",
-        path: "/",
+// Proper logout endpoint to clear all auth cookies
+app.get('/logout', (req, res) => {
+    // Set CORS headers for logout
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  
+    console.log('[DEBUG] Logout request received');
+    console.log('[DEBUG] Cookies to clear:', Object.keys(req.cookies || {}));
+  
+    // Clear all auth cookies with various possible domain patterns
+    const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
+
+    try {
+        // Determine cookie domain for production
+        const cookieDomain = isEmulator 
+            ? undefined 
+            : 'ai-code-fixer.web.app';
+      
+        cookiesToClear.forEach(cookieName => {
+            // Clear with explicit path but no domain (for localhost)
+            res.clearCookie(cookieName, {
+                path: '/',
+                httpOnly: true, // Clear httpOnly cookies
+                secure: !isEmulator // Secure in production
+            });
+          
+            // Also clear with domain (for production)
+            if (!isEmulator && cookieDomain) {
+                res.clearCookie(cookieName, {
+                    path: '/',
+                    domain: cookieDomain,
+                    httpOnly: true,
+                    secure: true
+                });
+              
+                // Try with dot prefix too (for subdomain cookies)
+                res.clearCookie(cookieName, {
+                    path: '/',
+                    domain: `.${cookieDomain}`,
+                    httpOnly: true,
+                    secure: true
+                });
+            }
+        });
+      
+        console.log('[DEBUG] Cookies cleared successfully');
+    } catch (error) {
+        console.error('[DEBUG] Error clearing cookies:', error);
+    }
+  
+    // Respond with success and cache control headers
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.status(200).json({
+        success: true,
+        message: 'Logged out successfully',
+        timestamp: Date.now()
     });
-    res.json({message: "Logged out successfully"});
 });
 
 // GitHub Repositories proxy endpoint
@@ -282,11 +331,7 @@ app.get("/github-repos", async (req, res) => {
     }
 });
 
-app.get('/session', (req, res) => {
-    console.log('[DEBUG] Session request received');
-    console.log('[DEBUG] Cookies:', req.cookies);
-    res.json({message: 'Session received'});
-});
+
 
 // Simpler, production-friendly verify-session endpoint
 app.get('/verify-session', (req, res) => {
@@ -338,42 +383,6 @@ app.get('/verify-session', (req, res) => {
             error: "Server error",
         });
     }
-});
-
-// Add a proper logout endpoint (replacing both previous ones)
-app.get('/logout', (req, res) => {
-    // Set CORS headers for logout
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  
-    console.log('[DEBUG] Logout request received');
-    console.log('[DEBUG] Cookies before clearing:', req.cookies);
-  
-    // Clear all auth cookies with various possible domain patterns
-    const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
-  
-    cookiesToClear.forEach(cookieName => {
-    // Clear with default path/domain
-        res.clearCookie(cookieName);
-    
-        // Clear with explicit path
-        res.clearCookie(cookieName, {path: '/'});
-    
-        // For production environment, clear with domain
-        if (!isEmulator) {
-            const domain = '.ai-code-fixer.web.app';
-            res.clearCookie(cookieName, {path: '/', domain});
-        }
-    });
-  
-    console.log('[DEBUG] Cookies cleared');
-  
-    // Respond with success
-    res.status(200).json({
-        success: true,
-        message: 'Logged out successfully',
-    });
 });
 
 // Fix GitHub repos endpoint to use axios instead of fetch
