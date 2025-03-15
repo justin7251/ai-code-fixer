@@ -184,7 +184,7 @@ app.get('/github/callback', (req, res, next) => {
             res.cookie('auth_token', token, {
                 maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
                 httpOnly: true,
-                secure: !isEmulator,
+                secure: true,
                 sameSite: 'lax',
             });
       
@@ -199,7 +199,7 @@ app.get('/github/callback', (req, res, next) => {
             res.cookie('user_data', JSON.stringify(userData), {
                 maxAge: 7 * 24 * 60 * 60 * 1000,
                 httpOnly: false,
-                secure: !isEmulator,
+                secure: true,
                 sameSite: 'lax',
             });
       
@@ -225,7 +225,7 @@ app.use((err, req, res, next) => {
     return res.status(500).json({
         success: false,
         error: 'Server error',
-        message: err.message
+        message: err.message,
     });
 });
 
@@ -282,92 +282,98 @@ app.get("/github-repos", async (req, res) => {
     }
 });
 
+app.get('/session', (req, res) => {
+    console.log('[DEBUG] Session request received');
+    console.log('[DEBUG] Cookies:', req.cookies);
+    res.json({message: 'Session received'});
+});
+
 // Simpler, production-friendly verify-session endpoint
 app.get('/verify-session', (req, res) => {
-  // Set CORS headers
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
-  console.log('[DEBUG] Simple verify session request received');
+    console.log('[DEBUG] Simple verify session request received');
   
-  try {
+    try {
     // Get token from various sources
-    const token = 
+        const token = 
       (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
-        ? req.headers.authorization.substring(7) : null) ||
+          ? req.headers.authorization.substring(7) : null) ||
       req.cookies.auth_token ||
       req.cookies.auth_client;
     
-    if (!token) {
-      return res.status(401).json({ 
-        authenticated: false,
-        error: "No authentication token found"
-      });
-    }
+        if (!token) {
+            return res.status(401).json({ 
+                authenticated: false,
+                error: "No authentication token found",
+            });
+        }
     
-    // Verify JWT token - this is the only critical operation
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+        // Verify JWT token - this is the only critical operation
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
       
-      // Return minimal user data directly from token
-      return res.status(200).json({
-        authenticated: true,
-        githubId: decoded.githubId,
-        username: decoded.username,
-        timestamp: Date.now()
-      });
-    } catch (jwtError) {
-      console.error('[DEBUG] JWT verification error:', jwtError.message);
-      return res.status(401).json({
-        authenticated: false,
-        error: "Invalid token"
-      });
+            // Return minimal user data directly from token
+            return res.status(200).json({
+                authenticated: true,
+                githubId: decoded.githubId,
+                username: decoded.username,
+                timestamp: Date.now(),
+            });
+        } catch (jwtError) {
+            console.error('[DEBUG] JWT verification error:', jwtError.message);
+            return res.status(401).json({
+                authenticated: false,
+                error: "Invalid token",
+            });
+        }
+    } catch (error) {
+        console.error('[DEBUG] Verification error:', error.message);
+        return res.status(500).json({
+            authenticated: false,
+            error: "Server error",
+        });
     }
-  } catch (error) {
-    console.error('[DEBUG] Verification error:', error.message);
-    return res.status(500).json({
-      authenticated: false,
-      error: "Server error"
-    });
-  }
 });
 
 // Add a proper logout endpoint (replacing both previous ones)
 app.get('/logout', (req, res) => {
-  // Set CORS headers for logout
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // Set CORS headers for logout
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   
-  console.log('[DEBUG] Logout request received');
-  console.log('[DEBUG] Cookies before clearing:', req.cookies);
+    console.log('[DEBUG] Logout request received');
+    console.log('[DEBUG] Cookies before clearing:', req.cookies);
   
-  // Clear all auth cookies with various possible domain patterns
-  const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
+    // Clear all auth cookies with various possible domain patterns
+    const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
   
-  cookiesToClear.forEach(cookieName => {
+    cookiesToClear.forEach(cookieName => {
     // Clear with default path/domain
-    res.clearCookie(cookieName);
+        res.clearCookie(cookieName);
     
-    // Clear with explicit path
-    res.clearCookie(cookieName, { path: '/' });
+        // Clear with explicit path
+        res.clearCookie(cookieName, {path: '/'});
     
-    // For production environment, clear with domain
-    if (!isEmulator) {
-      const domain = '.ai-code-fixer.web.app';
-      res.clearCookie(cookieName, { path: '/', domain });
-    }
-  });
+        // For production environment, clear with domain
+        if (!isEmulator) {
+            const domain = '.ai-code-fixer.web.app';
+            res.clearCookie(cookieName, {path: '/', domain});
+        }
+    });
   
-  console.log('[DEBUG] Cookies cleared');
+    console.log('[DEBUG] Cookies cleared');
   
-  // Respond with success
-  res.status(200).json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+    // Respond with success
+    res.status(200).json({
+        success: true,
+        message: 'Logged out successfully',
+    });
 });
 
 // Fix GitHub repos endpoint to use axios instead of fetch
