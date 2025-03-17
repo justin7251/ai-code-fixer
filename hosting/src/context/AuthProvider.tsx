@@ -33,23 +33,23 @@ interface User {
 }
 
 // Auth context type definition
-interface AuthContextType {
-  isAuthenticated: boolean;
+export interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
+  initialCheckComplete: boolean;
+  login: () => void;
+  logout: () => void;
+  checkAuth: () => Promise<void>;
 }
 
 // Default values for the context
 const AuthContext = createContext<AuthContextType>({
-  isAuthenticated: false,
   user: null,
   loading: true,
-  login: async () => {},
-  logout: async () => {},
-  refreshAuth: async () => {},
+  initialCheckComplete: false,
+  login: () => {},
+  logout: () => {},
+  checkAuth: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -72,84 +72,203 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     
     try {
-      // First check for cookies (these are set directly by backend)
-      const authTokenCookie = getCookieValue('auth_token');
-      const userDataCookie = getCookieValue('user_data');
+      // First check local storage for cached user data
+      const cachedAuthState = localStorage.getItem('auth_state');
+      const cachedUser = localStorage.getItem('user');
+      // Try multiple token storage keys
+      const cachedToken = 
+        localStorage.getItem('auth_client_token') || 
+        localStorage.getItem('auth_token');
       
-      console.log('[AUTH] Cookies found:', {
-        hasAuthToken: !!authTokenCookie,
-        hasUserData: !!userDataCookie
-      });
+      console.log('[AUTH] Cached auth state:', cachedAuthState);
+      console.log('[AUTH] Has cached user data:', !!cachedUser);
+      console.log('[AUTH] Has cached token:', !!cachedToken);
       
-      // If we have user data in cookie, use it immediately
-      if (userDataCookie) {
+      // Since we've seen that localStorage works but cookies don't,
+      // let's first try the direct localStorage approach for a quicker response
+      if (cachedAuthState === 'authenticated' && cachedUser && cachedToken) {
+        console.log('[AUTH] Using cached authentication data from localStorage');
         try {
-          const parsedUserData = JSON.parse(userDataCookie);
-          console.log('[AUTH] Parsed user data from cookie:', parsedUserData.username);
-          setUser(parsedUserData);
+          const userData = JSON.parse(cachedUser);
+          setUser({
+            githubId: userData.id || userData.githubId,
+            username: userData.username || userData.login,
+            name: userData.name,
+            avatar_url: userData.avatar_url || userData.image
+          });
+          setLoading(false);
+          setInitialCheckComplete(true);
           
-          // Also update localStorage for persistence
-          localStorage.setItem('user', userDataCookie);
-          localStorage.setItem('auth_state', 'authenticated');
-        } catch (e) {
-          console.error('[AUTH] Error parsing user_data cookie:', e);
+          // After setting up the user from localStorage, you can still try to verify
+          // with the server in the background, but don't block the UI
+          verifyTokenWithServer(cachedToken).catch(e => 
+            console.warn('[AUTH] Background token verification failed:', e)
+          );
+          
+          return;
+        } catch (parseError) {
+          console.error('[AUTH] Error parsing cached user data:', parseError);
         }
       }
       
-      // If we have auth token in localStorage but not user data, try to verify
-      const authState = localStorage.getItem('auth_state');
-      if (authTokenCookie && !userDataCookie && authState !== 'authenticated') {
-        console.log('[AUTH] Have auth token but no user data, verifying with server');
+      // Debugging: Check cookies - log only presence, not actual values
+      const cookiePresent = (name: string) => !!getCookieValue(name);
+      const cookieStatus = {
+        auth_token: cookiePresent('auth_token'),
+        auth_client: cookiePresent('auth_client'),
+        user_data: cookiePresent('user_data'),
+        test_cookie: cookiePresent('test_cookie'),
+        auth_flag: cookiePresent('auth_flag'),
+        cookie_count: document.cookie.split(';').length
+      };
+      
+      console.log('[AUTH] Cookie status:', cookieStatus);
+      console.log('[AUTH] All cookie names:', document.cookie.split(';').map(c => c.trim().split('=')[0]));
+      
+      // Try to get the token from cookies or localStorage
+      const authToken = getCookieValue('auth_token');
+      const authClient = getCookieValue('auth_client');
+      
+      // Special case: If we have localStorage token but no cookies, try to exchange it
+      if (cachedToken && !authClient && !authToken) {
+        console.log('[AUTH] Found token in localStorage but no cookies, attempting token exchange');
         
-        // Verify with server
-        const isDev = process.env.NODE_ENV === 'development';
-        const baseUrl = isDev 
-          ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
-          : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+        try {
+          let userData = null;
+          try {
+            const userDataStr = localStorage.getItem('user');
+            if (userDataStr) {
+              userData = JSON.parse(userDataStr);
+            }
+          } catch (e) {
+            console.error('[AUTH] Error parsing user data from localStorage', e);
+          }
+          
+          // Call the token exchange endpoint to set cookies
+          const exchangeResponse = await fetch('/api/auth/token-exchange', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              token: cachedToken,
+              userData: userData
+            })
+          });
+          
+          if (exchangeResponse.ok) {
+            console.log('[AUTH] Token exchange successful');
+            // Wait a bit for cookies to be set
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } else {
+            console.error('[AUTH] Token exchange failed');
+          }
+        } catch (exchangeError) {
+          console.error('[AUTH] Error during token exchange:', exchangeError);
+        }
+      }
+      
+      // Try the Next.js API route for session (this works cross-domain)
+      try {
+        console.log('[AUTH] Fetching session from Next.js API');
         
-        const response = await fetch(`${baseUrl}/verify-session`, {
-          credentials: 'include' // Important: include cookies
+        let url = '/api/auth/session';
+        
+        // If cookies aren't working but we have a token in localStorage, send it as query param
+        if (!cookieStatus.auth_token && !cookieStatus.auth_client && cachedToken) {
+          console.log('[AUTH] Using token from localStorage as query parameter');
+          url = `/api/auth/session?token=${encodeURIComponent(cachedToken)}`;
+        }
+        
+        const response = await fetch(url, {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            // If we have a token in localStorage, send it in Authorization header too
+            ...(cachedToken ? { 'Authorization': `Bearer ${cachedToken}` } : {})
+          }
         });
         
-        if (response.ok) {
-          const data = await response.json();
-          console.log('[AUTH] Server verification response:', data);
-          
-          if (data.authenticated) {
-            setUser(data);
-            localStorage.setItem('user', JSON.stringify(data));
-            localStorage.setItem('auth_state', 'authenticated');
-          } else {
-            console.log('[AUTH] Server says not authenticated');
-            setUser(null);
-            localStorage.removeItem('user');
-            localStorage.setItem('auth_state', 'unauthenticated');
-          }
-        } else {
-          console.error('[AUTH] Error verifying with server:', response.status);
-          setUser(null);
-          localStorage.removeItem('user');
-          localStorage.setItem('auth_state', 'error');
+        if (!response.ok) {
+          console.error('[AUTH] Session API returned error status:', response.status);
+          throw new Error(`Session API returned status ${response.status}`);
         }
+        
+        const sessionData = await response.json();
+        console.log('[AUTH] Session API response:', sessionData);
+        
+        // Log debug information if present
+        if (sessionData.debug) {
+          console.log('[AUTH] Session API debug info:', sessionData.debug);
+        }
+        
+        if (sessionData.authenticated && sessionData.user) {
+          console.log('[AUTH] Session API authenticated successfully');
+          setUser({
+            githubId: sessionData.user.id,
+            username: sessionData.user.username,
+            name: sessionData.user.name,
+            avatar_url: sessionData.user.image
+          });
+          localStorage.setItem('user', JSON.stringify(sessionData.user));
+          localStorage.setItem('auth_state', 'authenticated');
+          setLoading(false);
+          setInitialCheckComplete(true);
+          return;
+        } else if (sessionData.error) {
+          console.log('[AUTH] Session API reported error:', sessionData.error);
+        } else {
+          console.log('[AUTH] Session API reported not authenticated, trying fallbacks');
+        }
+      } catch (sessionError) {
+        console.error('[AUTH] Error with session API:', sessionError);
+        // Continue to fallbacks
       }
       
-      // If we don't have auth token cookie or user data cookie
-      if (!authTokenCookie && !userDataCookie) {
-        console.log('[AUTH] No auth cookies found, clearing state');
-        setUser(null);
-        localStorage.removeItem('user');
-        localStorage.setItem('auth_state', 'unauthenticated');
-      }
-    } catch (error) {
-      console.error('[AUTH] Auth check error:', error);
+      // If we get here, all methods failed
+      console.log('[AUTH] All authentication methods failed');
       setUser(null);
-      localStorage.setItem('auth_state', 'error');
+      localStorage.setItem('auth_state', 'unauthenticated');
+      setLoading(false);
+      setInitialCheckComplete(true);
+    } catch (error) {
+      console.error('[AUTH] Error in authentication check:', error);
+      setUser(null);
+      localStorage.setItem('auth_state', 'unauthenticated');
+      setLoading(false);
+      setInitialCheckComplete(true);
     }
+  }, []);
+
+  // Helper function to verify token with server in the background
+  const verifyTokenWithServer = async (token: string) => {
+    if (!token) return false;
     
-    setLoading(false);
-    setInitialCheckComplete(true);
-    console.log('[AUTH] Auth check complete, user:', user?.username || 'not authenticated');
-  }, [user?.username]);
+    try {
+      const isDev = process.env.NODE_ENV === 'development';
+      const baseUrl = isDev
+        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      
+      const response = await fetch(`${baseUrl}/verify-session`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.authenticated === true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[AUTH] Background token verification error:', error);
+      return false;
+    }
+  };
 
   // Run on mount and when URL changes
   useEffect(() => {
@@ -192,39 +311,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = authUrl;
   }, []);
 
-  // Logout function
+  // Logout function with enhanced cookie clearing
   const logout = useCallback(async () => {
-    const isDev = process.env.NODE_ENV === 'development';
-    const logoutUrl = isDev
-      ? "http://localhost:5001/ai-code-fixer/us-central1/auth/logout"
-      : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/logout";
+    console.log('[AUTH] Logging out');
+    setLoading(true);
     
     try {
-      await fetch(logoutUrl, { credentials: 'include' });
-    } catch (e) {
-      console.error('[AUTH] Error during logout request:', e);
+      // Determine the correct logout URL
+      const isDev = process.env.NODE_ENV === 'development';
+      const baseUrl = isDev 
+        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      
+      // First call our clear-cookies API endpoint
+      try {
+        const clearResponse = await fetch('/api/auth/clear-cookies', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        if (clearResponse.ok) {
+          console.log('[AUTH] Local cookie clearing successful');
+        } else {
+          console.error('[AUTH] Local cookie clearing failed:', await clearResponse.text());
+        }
+      } catch (clearError) {
+        console.error('[AUTH] Error clearing cookies locally:', clearError);
+      }
+      
+      // Then call the backend logout endpoint
+      try {
+        const response = await fetch(`${baseUrl}/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          console.log('[AUTH] Server logout successful');
+        } else {
+          console.log('[AUTH] Server logout returned error:', await response.text());
+        }
+      } catch (logoutError) {
+        console.error('[AUTH] Error during server logout:', logoutError);
+      }
+      
+      // Clear cookies on client side too (redundant but thorough)
+      const domains = ['', 'localhost', '.localhost', 'web.app', '.web.app', 'ai-code-fixer.web.app', '.ai-code-fixer.web.app'];
+      const paths = ['/', '/api', '/api/auth'];
+      const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'test_cookie', 'auth_flag'];
+      
+      cookiesToClear.forEach(name => {
+        domains.forEach(domain => {
+          paths.forEach(path => {
+            document.cookie = `${name}=; path=${path}; ${domain ? `domain=${domain}; ` : ''}expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+          });
+        });
+      });
+      
+      // Clear items from localStorage
+      const localStorageItemsToClear = ['user', 'auth_token', 'auth_client_token', 'auth_state'];
+      localStorageItemsToClear.forEach(item => {
+        try {
+          localStorage.removeItem(item);
+        } catch (e) {
+          console.error(`[AUTH] Error removing ${item} from localStorage:`, e);
+        }
+      });
+      
+      // Clear sessionStorage too
+      try {
+        sessionStorage.clear();
+        console.log('[AUTH] sessionStorage cleared');
+      } catch (e) {
+        console.error('[AUTH] Error clearing sessionStorage:', e);
+      }
+      
+      // Clear user state
+      setUser(null);
+      console.log('[AUTH] Logout complete');
+    } catch (error) {
+      console.error('[AUTH] Logout error:', error);
+    } finally {
+      setLoading(false);
+      // Redirect to home page regardless of success
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
     }
-    
-    // Clear everything regardless of response
-    document.cookie = 'auth_token=; Max-Age=0; path=/; SameSite=Lax;';
-    document.cookie = 'user_data=; Max-Age=0; path=/; SameSite=Lax;';
-    localStorage.removeItem('user');
-    localStorage.setItem('auth_state', 'unauthenticated');
-    setUser(null);
-    
-    console.log('[AUTH] Logged out, redirecting to home');
-    router.push('/');
-  }, [router]);
+  }, []);
 
   return (
     <AuthContext.Provider 
       value={{ 
-        isAuthenticated: !!user, 
         user, 
         loading, 
-        login: login as () => Promise<void>,
+        initialCheckComplete, 
+        login: login as () => void,
         logout,
-        refreshAuth: checkAuth
+        checkAuth
       }}
     >
       {children}

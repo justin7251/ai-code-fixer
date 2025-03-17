@@ -7,7 +7,7 @@ import serviceAccount from '../../../../keys/serviceAccountKey.json';
 // Initialize Firebase Admin (if not already initialized)
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount as any)
+    credential: admin.credential.cert(serviceAccount as any),
   });
 }
 
@@ -17,56 +17,49 @@ export const authOptions: AuthOptions = {
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
       authorization: {
-        params: {
-          scope: "read:user user:email repo" // Explicitly define scopes
-        }
+        params: { scope: "read:user user:email repo" },
       },
-      // Add profile mapping to ensure correct data extraction
       profile(profile) {
         return {
           id: profile.id.toString(),
           name: profile.name || profile.login,
           email: profile.email,
           image: profile.avatar_url,
-          username: profile.login
+          username: profile.login,
         };
-      }
+      },
     }),
   ],
+  adapter: FirestoreAdapter(admin.firestore()),
   secret: process.env.NEXTAUTH_SECRET,
   // Use JWT strategy to avoid cross-domain cookie issues
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  // Optional Firestore adapter - only necessary if you want to store user data in Firestore
-  adapter: FirestoreAdapter(admin.firestore()),
   callbacks: {
     async jwt({ token, account, profile }) {
-      // Add GitHub-specific information to the token
+      console.log("JWT Callback - Token before update:", token);
       if (account && account.access_token) {
         token.accessToken = account.access_token;
         token.provider = account.provider;
-        
-        // Use optional chaining and provide fallbacks
-        token.githubUsername = (profile as any)?.login || (profile as any)?.username;
-        token.githubId = (profile as any)?.id?.toString();
+        token.githubUsername = profile?.login || profile?.name;
+        token.githubId = profile?.id?.toString();
       }
+      console.log("JWT Callback - Token after update:", token);
       return token;
     },
     async session({ session, token, user }) {
-      // Attach additional information to the session
+      console.log("Session Callback - Session before update:", session);
       session.accessToken = token.accessToken as string;
       session.provider = token.provider as string;
       session.githubUsername = token.githubUsername as string;
       session.githubId = token.githubId as string;
-
-      // Ensure user details are complete when using JWT strategy
       if (user) {
         session.user.id = user.id;
         session.user.username = (user as any).username || token.githubUsername;
       }
-
+      console.log("Session Callback - Session after update:", session);
       return session;
     },
   },
