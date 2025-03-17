@@ -21,7 +21,7 @@ interface RepoHistoryItem {
 }
 
 export default function RepoSelector() {
-  const { isAuthenticated, user } = useAuth();
+  const { user } = useAuth();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [repoHistory, setRepoHistory] = useState<RepoHistoryItem[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
@@ -32,7 +32,7 @@ export default function RepoSelector() {
 
   // Fetch repositories and history when component mounts
   useEffect(() => {
-    if (isAuthenticated) {
+    if (user) {
       fetchRepositories();
       fetchRepoHistory();
     }
@@ -47,7 +47,7 @@ export default function RepoSelector() {
         console.error('Error parsing saved repo:', e);
       }
     }
-  }, [isAuthenticated, user]);
+  }, [user]);
 
   // Fetch repositories from backend
   const fetchRepositories = async () => {
@@ -62,15 +62,27 @@ export default function RepoSelector() {
       
       console.log('Fetching repositories from:', `${baseUrl}/github/repos`);
       
+      // Get token from localStorage
+      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
+      
+      if (!token) {
+        console.error('No authentication token found in localStorage');
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+      
       const response = await fetch(`${baseUrl}/github/repos`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       
       const data = await response.json();
       
       if (!response.ok) {
         console.error('Repository fetch error:', data);
-        throw new Error(data.error || `Error: ${response.status}`);
+        throw new Error(data.error || data.message || `Error: ${response.status}`);
       }
       
       console.log('Fetched repositories:', data.repositories?.length || 0);
@@ -92,7 +104,7 @@ export default function RepoSelector() {
 
   // Fetch user's repository history
   const fetchRepoHistory = async () => {
-    if (!isAuthenticated || !user) return;
+    if (!user) return;
     
     setHistoryLoading(true);
     
@@ -102,8 +114,20 @@ export default function RepoSelector() {
         ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
         : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
       
+      // Get token from localStorage
+      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
+      
+      if (!token) {
+        console.error('No authentication token found in localStorage for repo history');
+        return; // Just silently fail for history
+      }
+      
       const response = await fetch(`${baseUrl}/user/repo-history`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       
       const data = await response.json();
@@ -142,6 +166,14 @@ export default function RepoSelector() {
       // Get current user ID if available
       const userId = user?.githubId;
       
+      // Get token from localStorage
+      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
+      
+      if (!token) {
+        console.error('No authentication token found in localStorage for repo selection');
+        // Continue anyway since we've already updated the UI
+      }
+      
       // Don't await this - fire and forget
       fetch(`${baseUrl}/github/select-repo`, {
         method: 'POST',
@@ -149,6 +181,7 @@ export default function RepoSelector() {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          ...token ? { 'Authorization': `Bearer ${token}` } : {}
         },
         body: JSON.stringify({
           repoId: repo.id,

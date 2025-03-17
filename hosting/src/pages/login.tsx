@@ -5,12 +5,12 @@ import Head from 'next/head';
 
 export default function Login() {
   const router = useRouter();
-  const { isAuthenticated, loading } = useAuth();
+  const { user, loading } = useAuth();
   const { returnTo } = router.query;
 
   useEffect(() => {
     // If already authenticated, redirect to dashboard or returnTo
-    if (isAuthenticated && !loading) {
+    if (user && !loading) {
       const redirectPath = returnTo && typeof returnTo === 'string' 
         ? returnTo 
         : '/dashboard';
@@ -18,7 +18,7 @@ export default function Login() {
       console.log('[DEBUG] Already authenticated, redirecting to:', redirectPath);
       router.push(redirectPath);
     }
-  }, [isAuthenticated, loading, router, returnTo]);
+  }, [user, loading, router, returnTo]);
 
   const handleGitHubLogin = () => {
     // Get the correct GitHub login URL

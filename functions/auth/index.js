@@ -32,10 +32,10 @@ app.use((req, res, next) => {
     // Allow credentials
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     
-    // Set content security policy
+    // Set content security policy - updated to allow inline scripts and styles for the callback page
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; connect-src 'self' https://github.com https://api.github.com; img-src 'self' https: data:;",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://github.com https://api.github.com; img-src 'self' https: data:;",
     );
     
     // Set other security headers
@@ -55,7 +55,34 @@ const GITHUB_CLIENT_SECRET = isEmulator
     ? config.github.dev_client_secret  // Development client secret
     : config.github.client_secret;     // Production client secret
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+// Load JWT secret with multiple fallbacks
+let JWT_SECRET;
+try {
+    // First try to get from functions config
+    JWT_SECRET = config.jwt && config.jwt.secret;
+    
+    // If not found, try environment variable
+    if (!JWT_SECRET) {
+        JWT_SECRET = process.env.JWT_SECRET;
+        console.log('[CONFIG] Using JWT_SECRET from environment variable');
+    } else {
+        console.log('[CONFIG] Using JWT_SECRET from Firebase config');
+    }
+    
+    // Last resort fallback (development only)
+    if (!JWT_SECRET && isEmulator) {
+        JWT_SECRET = "dev_jwt_secret_for_local_testing_only";
+        console.log('[CONFIG] WARNING: Using development JWT_SECRET fallback');
+    }
+    
+    if (!JWT_SECRET) {
+        throw new Error('JWT_SECRET not found in any configuration source');
+    }
+} catch (error) {
+    console.error('[CONFIG] Error loading JWT_SECRET:', error.message);
+    throw new Error('Failed to load JWT_SECRET. Please set it in Firebase Functions config or .env file.');
+}
+
 const GITHUB_CALLBACK_URL = isEmulator
     ? "http://localhost:5001/ai-code-fixer/us-central1/auth/github/callback"
     : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/github/callback";
@@ -132,84 +159,175 @@ app.get('/github/login', (req, res, next) => {
 });
 
 // GitHub callback route
-app.get('/github/callback', (req, res, next) => {
-    console.log('[DEBUG] GitHub callback received');
+app.get('/github/callback', async (req, res) => {
+    try {
+        const code = req.query.code;
+        console.log('[GITHUB CALLBACK] Received code from GitHub callback');
+    
+        const tokenResponse = await axios.post(
+            'https://github.com/login/oauth/access_token',
+            {
+                client_id: process.env.GITHUB_CLIENT_ID,
+                client_secret: process.env.GITHUB_CLIENT_SECRET,
+                code,
+            },
+            {
+                headers: {
+                    Accept: 'application/json',
+                },
+            },
+        );
+
+        const {access_token} = tokenResponse.data;
+    
+        if (!access_token) {
+            console.error('[GITHUB CALLBACK] Failed to get access token from GitHub');
+            return res.status(500).send('Failed to get access token');
+        }
+
+        console.log('[GITHUB CALLBACK] Successfully got access token from GitHub');
+
+        // Get user data from GitHub
+        const userResponse = await axios.get('https://api.github.com/user', {
+            headers: {
+                Authorization: `token ${access_token}`,
+            },
+        });
+
+        const userData = userResponse.data;
+        console.log(`[GITHUB CALLBACK] User authenticated: ${userData.login} (${userData.id})`);
+
+        // Create JWT token for our app
+        const token = jwt.sign(
+            { 
+                id: userData.id, 
+                githubId: userData.id,
+                username: userData.login,
+                name: userData.name || userData.login,
+                image: userData.avatar_url,
+                github_token: access_token, 
+            }, 
+            JWT_SECRET,
+            {expiresIn: '7d'},
+        );
+
+        // Extract user data for cookies
+        const userForCookie = {
+            id: userData.id,
+            githubId: userData.id,
+            username: userData.login,
+            name: userData.name || userData.login,
+            avatar_url: userData.avatar_url,
+        };
+
+        // Determine domain for cookies based on environment
+        const isProd = process.env.NODE_ENV === 'production';
+        // Use the more specific domain that matches exactly our app domain
+        const cookieDomain = isProd ? 'ai-code-fixer.web.app' : 'localhost';
+    
+        console.log(`[GITHUB CALLBACK] Setting cookies with domain: ${cookieDomain}`);
+
+        // Set httpOnly cookie for secure authentication
+        res.cookie('auth_token', token, {
+            httpOnly: true,
+            secure: isProd,
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            path: '/',
+            domain: cookieDomain,
+            sameSite: 'lax',
+        });
+
+        // Set non-httpOnly cookie for client access if needed
+        res.cookie('auth_client', token, {
+            httpOnly: false,
+            secure: isProd,
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            path: '/',
+            domain: cookieDomain,
+            sameSite: 'lax',
+        });
+
+        // Set user data in cookie for client access
+        res.cookie('user_data', JSON.stringify(userForCookie), {
+            httpOnly: false,
+            secure: isProd,
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/',
+            domain: cookieDomain,
+            sameSite: 'lax',
+        });
+
+        // Set a simple flag cookie to check if cookies are working at all
+        res.cookie('auth_flag', 'true', {
+            httpOnly: false,
+            secure: isProd,
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/',
+            domain: cookieDomain,
+            sameSite: 'lax',
+        });
+    
+        const htmlResponse = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Authentication Successful</title>
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <style>
+    body { font-family: sans-serif; text-align: center; padding-top: 50px; }
+    h1 { color: #4a5568; }
+    .info { color: #718096; margin-bottom: 20px; }
+    #debug { 
+        font-family: monospace;
+        text-align: left;
+        margin: 20px auto;
+        max-width: 600px;
+        border: 1px solid #eee;
+        padding: 10px;
+        display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Authentication Successful</h1>
+  <p class="info">You've logged in with GitHub successfully. Redirecting to dashboard...</p>
+  <div id="debug"></div>
   
-    passport.authenticate('github', { 
-        failureRedirect: `${FRONTEND_URL}/error?message=GitHub+authentication+failed`,
-        session: false,
-    }, (err, user, info) => {
-        if (err) {
-            console.error('[DEBUG] Passport error:', err);
-            return res.redirect(
-                `${FRONTEND_URL}/error?message=Authentication+error:+${encodeURIComponent(err.message)}`,
-            );
-        }
+  <script>
     
-        if (!user) {
-            console.error('[DEBUG] No user returned from GitHub');
-            return res.redirect(
-                `${FRONTEND_URL}/error?message=Authentication+failed:+
-              ${encodeURIComponent(info?.message || 'Unknown error')}`);
-        }
+    // Store authentication data in localStorage
+    try {
+      // Store the token in multiple formats to ensure compatibility
+      localStorage.setItem('auth_client_token', '${token}');
+      localStorage.setItem('auth_token', '${token}');  // Alternative name
+      localStorage.setItem('auth_state', 'authenticated');
+      
+      // Store user data
+      const userData = ${JSON.stringify(JSON.stringify(userForCookie))};
+      localStorage.setItem('user', userData);
+      
+    } catch (e) {
+      debugLog("Error storing authentication data: " + e.message);
+    }
     
-        // Verify we have both profile and token
-        if (!user.profile || !user.accessToken) {
-            console.error('[DEBUG] Missing profile or token:', 
-                {hasProfile: !!user.profile, hasToken: !!user.accessToken});
-            return res.redirect(`${FRONTEND_URL}/error?message=Incomplete+authentication+data`);
-        }
+    // Redirect to dashboard after a short delay
+    setTimeout(function() {
+      // Pass auth data securely via URL parameters
+      window.location.href = '${FRONTEND_URL}/auth-complete?token=' + encodeURIComponent('${token}') +
+        '&data=' + encodeURIComponent(${JSON.stringify(JSON.stringify(userForCookie))}) + '&source=github_callback';
+    }, 500);
+  </script>
+</body>
+</html>`;
     
-        try {
-            console.log('[DEBUG] GitHub auth successful for:', user.profile.username);
-            console.log('[DEBUG] Token available:', !!user.accessToken);
-      
-            // Create JWT with GitHub token
-            const token = jwt.sign(
-                { 
-                    githubId: user.profile.id,
-                    username: user.profile.username,
-                    timestamp: Date.now(),
-                    githubToken: user.accessToken, // Make sure token is included
-                }, 
-                JWT_SECRET,
-                {expiresIn: '7d'},
-            );
-      
-            // For debugging: verify the token was created with githubToken
-            const decoded = jwt.verify(token, JWT_SECRET);
-            console.log('[DEBUG] JWT created with githubToken:', !!decoded.githubToken);
-      
-            // Set auth token cookie
-            res.cookie('auth_token', token, {
-                maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
-                httpOnly: true,
-                secure: true,
-                sameSite: 'lax',
-            });
-      
-            // Set user data cookie
-            const userData = {
-                githubId: user.profile.id,
-                username: user.profile.username,
-                name: user.profile.displayName || user.profile.username,
-                avatar_url: user.profile._json?.avatar_url,
-            };
-      
-            res.cookie('user_data', JSON.stringify(userData), {
-                maxAge: 7 * 24 * 60 * 60 * 1000,
-                httpOnly: false,
-                secure: true,
-                sameSite: 'lax',
-            });
-      
-            console.log('[DEBUG] Auth successful, redirecting to dashboard');
-            return res.redirect(`${FRONTEND_URL}/dashboard`);
-        } catch (error) {
-            console.error('[DEBUG] Error in callback:', error);
-            return res.redirect(`${FRONTEND_URL}/error?message=Server+error:+${encodeURIComponent(error.message)}`);
-        }
-    })(req, res, next);
+        res.set('Content-Type', 'text/html');
+        res.send(htmlResponse);
+    
+    } catch (error) {
+        console.error('[GITHUB CALLBACK] Error in GitHub callback:', error);
+        res.status(500).send('Authentication failed');
+    }
 });
 
 // Add login route - alternative for testing
@@ -238,54 +356,60 @@ app.get('/logout', (req, res) => {
   
     console.log('[DEBUG] Logout request received');
     console.log('[DEBUG] Cookies to clear:', Object.keys(req.cookies || {}));
+    console.log('[DEBUG] Request origin:', req.headers.origin);
   
     // Clear all auth cookies with various possible domain patterns
-    const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
+    const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token', 'test_cookie'];
 
     try {
-        // Determine cookie domain for production
-        const cookieDomain = isEmulator 
-            ? undefined 
-            : 'ai-code-fixer.web.app';
+        // We need to try multiple domain patterns to ensure all cookies are cleared
+        const domainPatterns = [
+            undefined, // No domain (for localhost)
+            'ai-code-fixer.web.app',
+            '.ai-code-fixer.web.app',
+            'web.app',
+            '.web.app',
+        ];
       
+        console.log('[DEBUG] Attempting to clear cookies with domains:', domainPatterns);
+        
+        // Try each cookie with each domain pattern
         cookiesToClear.forEach(cookieName => {
-            // Clear with explicit path but no domain (for localhost)
-            res.clearCookie(cookieName, {
-                path: '/',
-                httpOnly: true, // Clear httpOnly cookies
-                secure: !isEmulator // Secure in production
+            // Try all domain patterns
+            domainPatterns.forEach(domain => {
+                // Standard cookie clearing
+                res.clearCookie(cookieName, {
+                    path: '/',
+                    httpOnly: true,
+                    secure: !isEmulator,
+                    domain: domain,
+                });
+                
+                // Also try non-httpOnly version
+                res.clearCookie(cookieName, {
+                    path: '/',
+                    httpOnly: false,
+                    secure: !isEmulator,
+                    domain: domain,
+                });
             });
-          
-            // Also clear with domain (for production)
-            if (!isEmulator && cookieDomain) {
-                res.clearCookie(cookieName, {
-                    path: '/',
-                    domain: cookieDomain,
-                    httpOnly: true,
-                    secure: true
-                });
-              
-                // Try with dot prefix too (for subdomain cookies)
-                res.clearCookie(cookieName, {
-                    path: '/',
-                    domain: `.${cookieDomain}`,
-                    httpOnly: true,
-                    secure: true
-                });
-            }
         });
       
-        console.log('[DEBUG] Cookies cleared successfully');
+        console.log('[DEBUG] Cookies cleared with multiple domain patterns');
     } catch (error) {
         console.error('[DEBUG] Error clearing cookies:', error);
     }
+  
+    // Also add a response header to clear cookies client-side
+    res.setHeader('Clear-Site-Data', '"cookies"');
   
     // Respond with success and cache control headers
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.status(200).json({
         success: true,
         message: 'Logged out successfully',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        clearedCookies: cookiesToClear,
     });
 });
 
@@ -331,8 +455,6 @@ app.get("/github-repos", async (req, res) => {
     }
 });
 
-
-
 // Simpler, production-friendly verify-session endpoint
 app.get('/verify-session', (req, res) => {
     // Set CORS headers
@@ -340,75 +462,131 @@ app.get('/verify-session', (req, res) => {
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-    console.log('[DEBUG] Simple verify session request received');
+   
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
   
     try {
-    // Get token from various sources
+        // Get token from various sources
         const token = 
-      (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
-          ? req.headers.authorization.substring(7) : null) ||
-      req.cookies.auth_token ||
-      req.cookies.auth_client;
+            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+                ? req.headers.authorization.substring(7) : null) ||
+            req.cookies.auth_token ||
+            req.cookies.auth_client;
     
         if (!token) {
-            return res.status(401).json({ 
-                authenticated: false,
-                error: "No authentication token found",
+            return res.status(401).json({
+                error: 'Authentication required',
+                message: 'Authentication required',
             });
         }
-    
-        // Verify JWT token - this is the only critical operation
+        
+        // Use the verifyJwtToken utility function to verify the token
         try {
-            const decoded = jwt.verify(token, JWT_SECRET);
+            const decoded = verifyJwtToken(token);
       
-            // Return minimal user data directly from token
+            // Return user data directly from token
             return res.status(200).json({
                 authenticated: true,
-                githubId: decoded.githubId,
+                githubId: decoded.id,
                 username: decoded.username,
+                name: decoded.name || decoded.username, 
+                avatar_url: decoded.image,
                 timestamp: Date.now(),
             });
         } catch (jwtError) {
-            console.error('[DEBUG] JWT verification error:', jwtError.message);
             return res.status(401).json({
                 authenticated: false,
-                error: "Invalid token",
+                error: "Invalid token: " + jwtError.message,
             });
         }
     } catch (error) {
-        console.error('[DEBUG] Verification error:', error.message);
         return res.status(500).json({
             authenticated: false,
-            error: "Server error",
+            error: "Server error: " + error.message,
         });
     }
 });
 
+/**
+ * Utility function to verify JWT tokens with multiple fallback secret keys
+ * @param {string} token - The JWT token to verify
+ * @returns {Object} The decoded token payload
+ * @throws {Error} If verification fails
+ */
+function verifyJwtToken(token) {
+    if (!token) {
+        throw new Error('No token provided');
+    }
+    
+    // Try with various possible secrets (for environments with config issues)
+    const possibleSecrets = [
+        JWT_SECRET,                          // Primary configured secret
+        process.env.JWT_SECRET,              // Direct environment variable
+        config.jwt && config.jwt.secret,     // From Firebase config
+    ].filter(Boolean); // Remove undefined/null values
+    
+    // If no secrets are available (which shouldn't happen), throw error
+    if (possibleSecrets.length === 0) {
+        console.error('[JWT] Critical error: No JWT secrets available to verify token');
+        throw new Error('JWT verification configuration error');
+    }
+    
+    let lastError = null;
+    
+    // Try each possible secret
+    for (const secret of possibleSecrets) {
+        try {
+            return jwt.verify(token, secret);
+        } catch (error) {
+            lastError = error;
+            // Continue to next secret
+        }
+    }
+    
+    // If we get here, all verification attempts failed
+    throw lastError || new Error('Token verification failed');
+}
+
 // Fix GitHub repos endpoint to use axios instead of fetch
 app.get('/github/repos', async (req, res) => {
-    console.log('[DEBUG] Fetch repos request received');
+    // Get token from various sources including Authorization header
+    const token = 
+        (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+            ? req.headers.authorization.substring(7) : null) ||
+        req.cookies.auth_token ||
+        req.cookies.auth_client;
   
-    // Check for auth_token cookie
-    if (!req.cookies || !req.cookies.auth_token) {
-        console.log('[DEBUG] No auth_token cookie found');
-        return res.status(401).json({error: 'Authentication required'});
+    if (!token) {
+        return res.status(401).json({
+            error: 'Authentication required',
+            message: 'No authentication token found.',
+        });
     }
   
     try {
-    // Get the JWT token and decode it
-        const jwtToken = req.cookies.auth_token;
-        const decoded = jwt.verify(jwtToken, JWT_SECRET);
-    
-        // Extract GitHub token from decoded JWT
-        const githubToken = decoded.githubToken;
-    
-        if (!githubToken) {
-            console.error('[DEBUG] No GitHub token found in JWT');
-            return res.status(401).json({error: 'GitHub token not found, please log in again'});
+        // Get the JWT token and decode it with multiple fallbacks
+        let decoded;
+        try {
+            decoded = verifyJwtToken(token);
+        } catch (jwtError) {
+            return res.status(401).json({
+                error: 'Invalid authentication token',
+                message: jwtError.message,
+            });
         }
     
-        console.log('[DEBUG] Using GitHub token for user:', decoded.username);
+        // Extract GitHub token from decoded JWT
+        const githubToken = decoded.github_token;
+    
+        if (!githubToken) {
+            return res.status(401).json({
+                error: 'GitHub token not found',
+                message: 'GitHub token not found in your authentication data. Please log in again.',
+            });
+        }
     
         // Fetch repositories from GitHub API with axios
         try {
@@ -423,8 +601,6 @@ app.get('/github/repos', async (req, res) => {
                     per_page: 100,
                 },
             });
-      
-            console.log('[DEBUG] Fetched', response.data.length, 'repositories');
       
             // Format and return repositories
             const formattedRepos = response.data.map(repo => ({
@@ -590,16 +766,16 @@ app.get('/user/repo-history', async (req, res) => {
     res.header('Access-Control-Allow-Credentials', 'true');
   
     try {
-    // Get user authentication
+        // Get user authentication
         const token = 
-      (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
-          ? req.headers.authorization.substring(7) : null) ||
-      req.cookies.auth_token;
+            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+                ? req.headers.authorization.substring(7) : null) ||
+            req.cookies.auth_token;
     
         if (!token) {
             return res.status(401).json({
                 success: false,
-                message: 'Authentication required',
+                message: 'No authentication token found',
             });
         }
     
@@ -637,12 +813,70 @@ app.get('/user/repo-history', async (req, res) => {
         });
     
     } catch (error) {
-        console.error('[DEBUG] Error fetching repo history:', error);
         return res.status(500).json({
             success: false,
             message: 'Failed to retrieve repository history',
         });
     }
+});
+
+// Diagnostic test endpoint for cookie issues
+app.get('/test-auth', (req, res) => {
+    // Set proper CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+    console.log('[DIAG] Test auth endpoint called');
+    console.log('[DIAG] Request origin:', req.headers.origin);
+    console.log('[DIAG] Request method:', req.method);
+  
+    // Return detailed diagnostic information
+    const response = {
+        success: true,
+        timestamp: Date.now(),
+        environment: isEmulator ? 'development' : 'production',
+        cookies: {},
+        headers: {
+            origin: req.headers.origin,
+            referer: req.headers.referer,
+            'user-agent': req.headers['user-agent'],
+            'has-auth-header': !!req.headers.authorization,
+        },
+    };
+  
+    // Add cookie information safely (don't expose values)
+    if (req.cookies) {
+        Object.keys(req.cookies).forEach(cookieName => {
+            response.cookies[cookieName] = {
+                exists: true,
+                length: req.cookies[cookieName].length,
+                // Only show first 10 chars for debugging
+                sample: req.cookies[cookieName].substring(0, 10) + '...',
+            };
+        });
+    }
+  
+    // Set a test cookie to verify cookie setting works
+    const testCookieDomain = isEmulator ? undefined : 'web.app';
+    
+    res.cookie('test_cookie', 'test_value_' + Date.now(), {
+        maxAge: 60 * 1000, // 1 minute
+        httpOnly: false,
+        secure: !isEmulator,
+        sameSite: 'lax',
+        domain: testCookieDomain,
+        path: '/',
+    });
+  
+    response.test = {
+        cookieSet: true,
+        cookieName: 'test_cookie',
+        cookieDomain: testCookieDomain || '(none)',
+    };
+  
+    res.status(200).json(response);
 });
 
 // Make sure we have only one export

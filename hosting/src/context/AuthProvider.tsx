@@ -33,23 +33,23 @@ interface User {
 }
 
 // Auth context type definition
-interface AuthContextType {
-  isAuthenticated: boolean;
+export interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
+  initialCheckComplete: boolean;
+  login: () => void;
+  logout: () => void;
+  checkAuth: () => Promise<void>;
 }
 
 // Default values for the context
 const AuthContext = createContext<AuthContextType>({
-  isAuthenticated: false,
   user: null,
   loading: true,
-  login: async () => {},
-  logout: async () => {},
-  refreshAuth: async () => {},
+  initialCheckComplete: false,
+  login: () => {},
+  logout: () => {},
+  checkAuth: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -72,66 +72,203 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     
     try {
-      // First try the Next.js API route for session (this works cross-domain)
-      const response = await fetch('/api/auth/session');
-      const sessionData = await response.json();
+      // First check local storage for cached user data
+      const cachedAuthState = localStorage.getItem('auth_state');
+      const cachedUser = localStorage.getItem('user');
+      // Try multiple token storage keys
+      const cachedToken = 
+        localStorage.getItem('auth_client_token') || 
+        localStorage.getItem('auth_token');
       
-      console.log('[AUTH] Session API response:', sessionData);
+      console.log('[AUTH] Cached auth state:', cachedAuthState);
+      console.log('[AUTH] Has cached user data:', !!cachedUser);
+      console.log('[AUTH] Has cached token:', !!cachedToken);
       
-      if (sessionData.authenticated && sessionData.user) {
-        setUser({
-          githubId: sessionData.user.id,
-          username: sessionData.user.username,
-          name: sessionData.user.name,
-          avatar_url: sessionData.user.image
-        });
-        localStorage.setItem('user', JSON.stringify(sessionData.user));
-        localStorage.setItem('auth_state', 'authenticated');
-      } else {
-        // If Next.js API fails, try the client-accessible cookie
-        const authClientCookie = getCookieValue('auth_client');
-        if (authClientCookie) {
-          try {
-            // Use this token to fetch user data
-            const isDev = process.env.NODE_ENV === 'development';
-            const baseUrl = isDev 
-              ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
-              : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-            
-            const verifyResponse = await fetch(`${baseUrl}/verify-session`, {
-              headers: {
-                'Authorization': `Bearer ${authClientCookie}`
-              }
-            });
-            
-            if (verifyResponse.ok) {
-              const userData = await verifyResponse.json();
-              if (userData.authenticated) {
-                setUser(userData);
-                localStorage.setItem('user', JSON.stringify(userData));
-                localStorage.setItem('auth_state', 'authenticated');
-              } else {
-                setUser(null);
-                localStorage.setItem('auth_state', 'unauthenticated');
-              }
-            }
-          } catch (e) {
-            console.error('[AUTH] Error verifying with direct token:', e);
-          }
-        } else {
-          setUser(null);
-          localStorage.setItem('auth_state', 'unauthenticated');
+      // Since we've seen that localStorage works but cookies don't,
+      // let's first try the direct localStorage approach for a quicker response
+      if (cachedAuthState === 'authenticated' && cachedUser && cachedToken) {
+        console.log('[AUTH] Using cached authentication data from localStorage');
+        try {
+          const userData = JSON.parse(cachedUser);
+          setUser({
+            githubId: userData.id || userData.githubId,
+            username: userData.username || userData.login,
+            name: userData.name,
+            avatar_url: userData.avatar_url || userData.image
+          });
+          setLoading(false);
+          setInitialCheckComplete(true);
+          
+          // After setting up the user from localStorage, you can still try to verify
+          // with the server in the background, but don't block the UI
+          verifyTokenWithServer(cachedToken).catch(e => 
+            console.warn('[AUTH] Background token verification failed:', e)
+          );
+          
+          return;
+        } catch (parseError) {
+          console.error('[AUTH] Error parsing cached user data:', parseError);
         }
       }
-    } catch (error) {
-      console.error('[AUTH] Auth check error:', error);
+      
+      // Debugging: Check cookies - log only presence, not actual values
+      const cookiePresent = (name: string) => !!getCookieValue(name);
+      const cookieStatus = {
+        auth_token: cookiePresent('auth_token'),
+        auth_client: cookiePresent('auth_client'),
+        user_data: cookiePresent('user_data'),
+        test_cookie: cookiePresent('test_cookie'),
+        auth_flag: cookiePresent('auth_flag'),
+        cookie_count: document.cookie.split(';').length
+      };
+      
+      console.log('[AUTH] Cookie status:', cookieStatus);
+      console.log('[AUTH] All cookie names:', document.cookie.split(';').map(c => c.trim().split('=')[0]));
+      
+      // Try to get the token from cookies or localStorage
+      const authToken = getCookieValue('auth_token');
+      const authClient = getCookieValue('auth_client');
+      
+      // Special case: If we have localStorage token but no cookies, try to exchange it
+      if (cachedToken && !authClient && !authToken) {
+        console.log('[AUTH] Found token in localStorage but no cookies, attempting token exchange');
+        
+        try {
+          let userData = null;
+          try {
+            const userDataStr = localStorage.getItem('user');
+            if (userDataStr) {
+              userData = JSON.parse(userDataStr);
+            }
+          } catch (e) {
+            console.error('[AUTH] Error parsing user data from localStorage', e);
+          }
+          
+          // Call the token exchange endpoint to set cookies
+          const exchangeResponse = await fetch('/api/auth/token-exchange', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              token: cachedToken,
+              userData: userData
+            })
+          });
+          
+          if (exchangeResponse.ok) {
+            console.log('[AUTH] Token exchange successful');
+            // Wait a bit for cookies to be set
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } else {
+            console.error('[AUTH] Token exchange failed');
+          }
+        } catch (exchangeError) {
+          console.error('[AUTH] Error during token exchange:', exchangeError);
+        }
+      }
+      
+      // Try the Next.js API route for session (this works cross-domain)
+      try {
+        console.log('[AUTH] Fetching session from Next.js API');
+        
+        let url = '/api/auth/session';
+        
+        // If cookies aren't working but we have a token in localStorage, send it as query param
+        if (!cookieStatus.auth_token && !cookieStatus.auth_client && cachedToken) {
+          console.log('[AUTH] Using token from localStorage as query parameter');
+          url = `/api/auth/session?token=${encodeURIComponent(cachedToken)}`;
+        }
+        
+        const response = await fetch(url, {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            // If we have a token in localStorage, send it in Authorization header too
+            ...(cachedToken ? { 'Authorization': `Bearer ${cachedToken}` } : {})
+          }
+        });
+        
+        if (!response.ok) {
+          console.error('[AUTH] Session API returned error status:', response.status);
+          throw new Error(`Session API returned status ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        console.log('[AUTH] Session API response:', sessionData);
+        
+        // Log debug information if present
+        if (sessionData.debug) {
+          console.log('[AUTH] Session API debug info:', sessionData.debug);
+        }
+        
+        if (sessionData.authenticated && sessionData.user) {
+          console.log('[AUTH] Session API authenticated successfully');
+          setUser({
+            githubId: sessionData.user.id,
+            username: sessionData.user.username,
+            name: sessionData.user.name,
+            avatar_url: sessionData.user.image
+          });
+          localStorage.setItem('user', JSON.stringify(sessionData.user));
+          localStorage.setItem('auth_state', 'authenticated');
+          setLoading(false);
+          setInitialCheckComplete(true);
+          return;
+        } else if (sessionData.error) {
+          console.log('[AUTH] Session API reported error:', sessionData.error);
+        } else {
+          console.log('[AUTH] Session API reported not authenticated, trying fallbacks');
+        }
+      } catch (sessionError) {
+        console.error('[AUTH] Error with session API:', sessionError);
+        // Continue to fallbacks
+      }
+      
+      // If we get here, all methods failed
+      console.log('[AUTH] All authentication methods failed');
       setUser(null);
-      localStorage.setItem('auth_state', 'error');
+      localStorage.setItem('auth_state', 'unauthenticated');
+      setLoading(false);
+      setInitialCheckComplete(true);
+    } catch (error) {
+      console.error('[AUTH] Error in authentication check:', error);
+      setUser(null);
+      localStorage.setItem('auth_state', 'unauthenticated');
+      setLoading(false);
+      setInitialCheckComplete(true);
     }
-    
-    setLoading(false);
-    setInitialCheckComplete(true);
   }, []);
+
+  // Helper function to verify token with server in the background
+  const verifyTokenWithServer = async (token: string) => {
+    if (!token) return false;
+    
+    try {
+      const isDev = process.env.NODE_ENV === 'development';
+      const baseUrl = isDev
+        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      
+      const response = await fetch(`${baseUrl}/verify-session`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.authenticated === true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[AUTH] Background token verification error:', error);
+      return false;
+    }
+  };
 
   // Run on mount and when URL changes
   useEffect(() => {
@@ -174,70 +311,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = authUrl;
   }, []);
 
-  // Logout function
+  // Logout function with enhanced cookie clearing
   const logout = useCallback(async () => {
-    console.log('[AUTH] Logout initiated');
-    
-    // Get the correct URL based on environment
-    const isDev = process.env.NODE_ENV === 'development';
-    const logoutUrl = isDev
-      ? "http://localhost:5001/ai-code-fixer/us-central1/auth/logout"
-      : "https://us-central1-ai-code-fixer.cloudfunctions.net/auth/logout";
+    console.log('[AUTH] Logging out');
+    setLoading(true);
     
     try {
-      // Call the backend logout endpoint with credentials included
-      const response = await fetch(logoutUrl, { 
-        credentials: 'include',
-        mode: 'cors',
-        cache: 'no-cache',
-        headers: {
-          'Accept': 'application/json'
+      // Determine the correct logout URL
+      const isDev = process.env.NODE_ENV === 'development';
+      const baseUrl = isDev 
+        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      
+      // First call our clear-cookies API endpoint
+      try {
+        const clearResponse = await fetch('/api/auth/clear-cookies', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        if (clearResponse.ok) {
+          console.log('[AUTH] Local cookie clearing successful');
+        } else {
+          console.error('[AUTH] Local cookie clearing failed:', await clearResponse.text());
         }
-      });
+      } catch (clearError) {
+        console.error('[AUTH] Error clearing cookies locally:', clearError);
+      }
       
-      console.log('[AUTH] Logout response:', response.status);
-      
-      // Also clear cookies on the frontend
-      const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'session_token'];
-      const domain = isDev ? '' : 'ai-code-fixer.web.app';
-      
-      cookiesToClear.forEach(cookieName => {
-        // Standard path
-        document.cookie = `${cookieName}=; Max-Age=0; path=/; SameSite=Lax;`;
+      // Then call the backend logout endpoint
+      try {
+        const response = await fetch(`${baseUrl}/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
         
-        // With domain (for production)
-        if (!isDev && domain) {
-          document.cookie = `${cookieName}=; Max-Age=0; path=/; domain=${domain}; SameSite=Lax;`;
-          document.cookie = `${cookieName}=; Max-Age=0; path=/; domain=.${domain}; SameSite=Lax;`;
+        if (response.ok) {
+          console.log('[AUTH] Server logout successful');
+        } else {
+          console.log('[AUTH] Server logout returned error:', await response.text());
+        }
+      } catch (logoutError) {
+        console.error('[AUTH] Error during server logout:', logoutError);
+      }
+      
+      // Clear cookies on client side too (redundant but thorough)
+      const domains = ['', 'localhost', '.localhost', 'web.app', '.web.app', 'ai-code-fixer.web.app', '.ai-code-fixer.web.app'];
+      const paths = ['/', '/api', '/api/auth'];
+      const cookiesToClear = ['auth_token', 'auth_client', 'user_data', 'test_cookie', 'auth_flag'];
+      
+      cookiesToClear.forEach(name => {
+        domains.forEach(domain => {
+          paths.forEach(path => {
+            document.cookie = `${name}=; path=${path}; ${domain ? `domain=${domain}; ` : ''}expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+          });
+        });
+      });
+      
+      // Clear items from localStorage
+      const localStorageItemsToClear = ['user', 'auth_token', 'auth_client_token', 'auth_state'];
+      localStorageItemsToClear.forEach(item => {
+        try {
+          localStorage.removeItem(item);
+        } catch (e) {
+          console.error(`[AUTH] Error removing ${item} from localStorage:`, e);
         }
       });
       
-      // Clear local storage
-      localStorage.removeItem('user');
-      localStorage.removeItem('auth_token');
-      localStorage.setItem('auth_state', 'unauthenticated');
+      // Clear sessionStorage too
+      try {
+        sessionStorage.clear();
+        console.log('[AUTH] sessionStorage cleared');
+      } catch (e) {
+        console.error('[AUTH] Error clearing sessionStorage:', e);
+      }
       
-      // Reset state
+      // Clear user state
       setUser(null);
-      
-      console.log('[AUTH] Logged out successfully, redirecting to home');
+      console.log('[AUTH] Logout complete');
     } catch (error) {
-      console.error('[AUTH] Error during logout:', error);
+      console.error('[AUTH] Logout error:', error);
+    } finally {
+      setLoading(false);
+      // Redirect to home page regardless of success
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
     }
-    
-    // Always redirect to home page, even if there was an error
-    router.push('/');
-  }, [router]);
+  }, []);
 
   return (
     <AuthContext.Provider 
       value={{ 
-        isAuthenticated: !!user, 
         user, 
         loading, 
-        login: login as () => Promise<void>,
+        initialCheckComplete, 
+        login: login as () => void,
         logout,
-        refreshAuth: checkAuth
+        checkAuth
       }}
     >
       {children}

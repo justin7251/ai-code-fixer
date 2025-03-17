@@ -5,6 +5,19 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const passport = require("passport");
 const GitHubStrategy = require("passport-github").Strategy;
+const path = require('path');
+const fs = require('fs');
+
+// Load environment variables from .env file if it exists
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        console.log('[CONFIG] Loading environment variables from .env file');
+        require('dotenv').config({path: envPath});
+    }
+} catch (error) {
+    console.warn('[CONFIG] Error loading .env file:', error.message);
+}
 
 // Initialize Firebase Admin
 admin.initializeApp();
