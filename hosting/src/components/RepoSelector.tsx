@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthProvider';
+import { useRouter } from 'next/router';
 
 interface Repository {
   id: number;
@@ -29,6 +30,7 @@ export default function RepoSelector() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const router = useRouter();
 
   // Fetch repositories and history when component mounts
   useEffect(() => {
@@ -367,7 +369,7 @@ export default function RepoSelector() {
             <div className="mt-6 flex flex-col sm:flex-row sm:space-x-4 space-y-3 sm:space-y-0">
               <button
                 onClick={() => {
-                  window.location.href = `/project/${selectedRepo.id}`;
+                  router.push(`/project/${selectedRepo.id}`);
                 }}
                 className="inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-150"
               >

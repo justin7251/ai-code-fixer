@@ -22,6 +22,14 @@ export default function ProjectPage() {
       console.error('Error loading repository data:', e);
     }
   }, [id]);
+
+  function handleAnalysis() {
+    console.log('Analysis button clicked');
+  }
+
+  function handleIssueFixes() {
+    console.log('Issue fixes button clicked');
+  }
   
   if (!repository) {
     return (
@@ -71,7 +79,7 @@ export default function ProjectPage() {
                 </p>
                 <button 
                   className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                  onClick={() => alert('This feature is coming soon!')}
+                  onClick={handleAnalysis}
                 >
                   Start Analysis
                 </button>
@@ -84,7 +92,7 @@ export default function ProjectPage() {
                 </p>
                 <button 
                   className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                  onClick={() => alert('This feature is coming soon!')}
+                  onClick={handleIssueFixes}
                 >
                   View Issues
                 </button>
