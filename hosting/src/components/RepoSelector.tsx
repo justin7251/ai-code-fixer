@@ -1,18 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthProvider';
 import { useRouter } from 'next/router';
-
-interface Repository {
-  id: number;
-  name: string;
-  full_name: string;
-  description: string;
-  url: string;
-  default_branch: string;
-  stars: number;
-  language: string;
-  private: boolean;
-}
+import { Repository } from '@/utils/github';
 
 interface RepoHistoryItem {
   repoId: number;
@@ -269,6 +258,8 @@ export default function RepoSelector() {
                       stars: 0,
                       language: '',
                       private: false,
+                      owner: item.repoFullName.split('/')[0],
+                      updatedAt: null
                     };
                     handleSelectRepo(historyRepo);
                   }

@@ -24,13 +24,15 @@ export default function ProjectPage() {
   }, [id]);
 
   function handleAnalysis() {
-    console.log('Analysis button clicked');
+    // TODO: Implement analysis
+    router.push(`/project/${id}/analysis`);
   }
 
   function handleIssueFixes() {
-    console.log('Issue fixes button clicked');
+    // TODO: Implement issue fixes
+    router.push(`/project/${id}/issue-fixes`);
   }
-  
+
   if (!repository) {
     return (
       <div className="min-h-screen flex items-center justify-center">
