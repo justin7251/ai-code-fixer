@@ -3,6 +3,6 @@ node_modules/
 
 .env
 
-functions/.runtimeconfig.json
+.runtimeconfig.json
 
 
