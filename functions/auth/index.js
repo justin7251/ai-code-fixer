@@ -953,65 +953,6 @@ app.get('/user/repo-history', async (req, res) => {
     }
 });
 
-// Diagnostic test endpoint for cookie issues
-app.get('/test-auth', (req, res) => {
-    // Set proper CORS headers
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-    console.log('[DIAG] Test auth endpoint called');
-    console.log('[DIAG] Request origin:', req.headers.origin);
-    console.log('[DIAG] Request method:', req.method);
-  
-    // Return detailed diagnostic information
-    const response = {
-        success: true,
-        timestamp: Date.now(),
-        environment: isEmulator ? 'development' : 'production',
-        cookies: {},
-        headers: {
-            origin: req.headers.origin,
-            referer: req.headers.referer,
-            'user-agent': req.headers['user-agent'],
-            'has-auth-header': !!req.headers.authorization,
-        },
-    };
-  
-    // Add cookie information safely (don't expose values)
-    if (req.cookies) {
-        Object.keys(req.cookies).forEach(cookieName => {
-            response.cookies[cookieName] = {
-                exists: true,
-                length: req.cookies[cookieName].length,
-                // Only show first 10 chars for debugging
-                sample: req.cookies[cookieName].substring(0, 10) + '...',
-            };
-        });
-    }
-  
-    // Set a test cookie to verify cookie setting works
-    const testCookieDomain = isEmulator ? undefined : 'web.app';
-    
-    res.cookie('test_cookie', 'test_value_' + Date.now(), {
-        maxAge: 60 * 1000, // 1 minute
-        httpOnly: false,
-        secure: !isEmulator,
-        sameSite: 'lax',
-        domain: testCookieDomain,
-        path: '/',
-    });
-  
-    response.test = {
-        cookieSet: true,
-        cookieName: 'test_cookie',
-        cookieDomain: testCookieDomain || '(none)',
-    };
-  
-    res.status(200).json(response);
-});
-
 // Get user's saved repositories from Firestore
 app.get('/github/user-repos', async (req, res) => {
     // Set CORS headers for cross-origin requests
