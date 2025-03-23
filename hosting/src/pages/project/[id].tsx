@@ -79,7 +79,7 @@ export default function ProjectPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
                 </svg>
               </Link>
-              <h1 className="text-xl font-bold text-gray-900 truncate">{repository.full_name}</h1>
+              <h1 className="text-xl font-bold text-gray-900 truncate">{repository.name}</h1>
             </div>
             <div className="mt-2 md:mt-0 flex space-x-3">
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-blue-100 text-blue-800">
