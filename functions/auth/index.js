@@ -163,12 +163,24 @@ app.get('/github/callback', async (req, res) => {
     try {
         const code = req.query.code;
         console.log('[GITHUB CALLBACK] Received code from GitHub callback');
+
+        if (isEmulator) {
+            console.log('[DEBUG] Emulator mode detected, using development GitHub credentials');
+            const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID_DEV;
+            const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET_DEV;
+        } else {
+            const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+            const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+        }
+
+        console.log('[DEBUG] GITHUB_CLIENT_ID:', GITHUB_CLIENT_ID);
+        console.log('[DEBUG] GITHUB_CLIENT_SECRET:', GITHUB_CLIENT_SECRET);
     
         const tokenResponse = await axios.post(
             'https://github.com/login/oauth/access_token',
             {
-                client_id: process.env.GITHUB_CLIENT_ID,
-                client_secret: process.env.GITHUB_CLIENT_SECRET,
+                client_id: GITHUB_CLIENT_ID,
+                client_secret: GITHUB_CLIENT_SECRET,
                 code,
             },
             {
@@ -452,6 +464,139 @@ app.get("/github-repos", async (req, res) => {
     } catch (error) {
         console.error("Error fetching GitHub repositories:", error);
         res.status(500).json({error: "Failed to fetch repositories"});
+    }
+});
+
+// Add new endpoint to store selected repositories
+app.post('/github/add-repos', async (req, res) => {
+    // Set CORS headers for cross-origin requests
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, Origin');
+   
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+  
+    console.log('[DEBUG] Add repositories request received');
+  
+    try {
+        // Get token from various sources
+        const token = 
+            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+                ? req.headers.authorization.substring(7) : null) ||
+            req.cookies.auth_token ||
+            req.cookies.auth_client;
+    
+        if (!token) {
+            console.log('[DEBUG] No authentication token found');
+            return res.status(401).json({
+                success: false,
+                error: 'Authentication required',
+                message: 'Authentication required',
+            });
+        }
+    
+        // Get repositories data from request body
+        const {repositories} = req.body;
+    
+        if (!repositories || !Array.isArray(repositories) || repositories.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing or invalid repositories data',
+            });
+        }
+
+        console.log('[DEBUG] Repositories received:', JSON.stringify(repositories));
+    
+        // Verify user from token
+        let userId;
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            userId = decoded.githubId;
+            console.log('[DEBUG] User identified:', userId);
+        } catch (tokenError) {
+            console.error('[DEBUG] Token verification failed:', tokenError);
+            return res.status(401).json({
+                success: false,
+                error: "Invalid token: " + tokenError.message,
+            });
+        }
+    
+        // Store in Firestore
+        const db = admin.firestore();
+        const userReposRef = db.collection('users').doc(String(userId)).collection('repositories');
+        
+        // Add each repository to the user's repositories collection
+        const batch = db.batch();
+        
+        repositories.forEach(repo => {
+            if (!repo || !repo.id) {
+                console.error('[DEBUG] Invalid repository object:', repo);
+                return; // Skip this repository
+            }
+
+            // Ensure all required fields have default values to prevent undefined
+            const repoData = {
+                repoId: String(repo.id),
+                name: repo.name || 'Unnamed Repository',
+                fullName: repo.full_name || repo.name || 'Unnamed Repository',
+                description: repo.description || '',
+                language: repo.language || 'Unknown',
+                url: repo.html_url || `https://github.com/${repo.full_name || 'unknown'}`,
+                isPrivate: Boolean(repo.private),
+                defaultBranch: repo.default_branch || 'main',
+                stars: Number(repo.stargazers_count || 0),
+                updatedAt: repo.updated_at || new Date().toISOString(),
+                addedAt: admin.firestore.FieldValue.serverTimestamp(),
+                status: 'active',
+            };
+
+            console.log('[DEBUG] Saving repository:', repoData.repoId, repoData.name);
+            
+            const repoRef = userReposRef.doc(String(repo.id));
+            batch.set(repoRef, repoData, {merge: true});
+        });
+        
+        await batch.commit();
+        
+        // Also update user document with last activity
+        await db.collection('users').doc(String(userId)).update({
+            lastActivity: {
+                type: 'add_repositories',
+                count: repositories.length,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            },
+        });
+    
+        console.log('[DEBUG] Repositories added for user:', userId, 'Count:', repositories.length);
+    
+        // Fetch the updated list of repositories from Firestore
+        const reposSnapshot = await userReposRef.get();
+        const userRepositories = [];
+        
+        reposSnapshot.forEach(doc => {
+            userRepositories.push({
+                id: doc.id,
+                ...doc.data(),
+            });
+        });
+    
+        return res.status(200).json({
+            success: true,
+            message: `Added ${repositories.length} repositories`,
+            repositories: userRepositories,
+        });
+    
+    } catch (error) {
+        console.error('[DEBUG] Error adding repositories:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Server error',
+            message: error.message,
+        });
     }
 });
 
@@ -820,63 +965,81 @@ app.get('/user/repo-history', async (req, res) => {
     }
 });
 
-// Diagnostic test endpoint for cookie issues
-app.get('/test-auth', (req, res) => {
-    // Set proper CORS headers
+// Get user's saved repositories from Firestore
+app.get('/github/user-repos', async (req, res) => {
+    // Set CORS headers for cross-origin requests
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-    console.log('[DIAG] Test auth endpoint called');
-    console.log('[DIAG] Request origin:', req.headers.origin);
-    console.log('[DIAG] Request method:', req.method);
-  
-    // Return detailed diagnostic information
-    const response = {
-        success: true,
-        timestamp: Date.now(),
-        environment: isEmulator ? 'development' : 'production',
-        cookies: {},
-        headers: {
-            origin: req.headers.origin,
-            referer: req.headers.referer,
-            'user-agent': req.headers['user-agent'],
-            'has-auth-header': !!req.headers.authorization,
-        },
-    };
-  
-    // Add cookie information safely (don't expose values)
-    if (req.cookies) {
-        Object.keys(req.cookies).forEach(cookieName => {
-            response.cookies[cookieName] = {
-                exists: true,
-                length: req.cookies[cookieName].length,
-                // Only show first 10 chars for debugging
-                sample: req.cookies[cookieName].substring(0, 10) + '...',
-            };
-        });
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, Origin');
+   
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
   
-    // Set a test cookie to verify cookie setting works
-    const testCookieDomain = isEmulator ? undefined : 'web.app';
+    console.log('[DEBUG] User repositories request received');
+  
+    try {
+        // Get token from various sources
+        const token = 
+            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
+                ? req.headers.authorization.substring(7) : null) ||
+            req.cookies.auth_token ||
+            req.cookies.auth_client;
     
-    res.cookie('test_cookie', 'test_value_' + Date.now(), {
-        maxAge: 60 * 1000, // 1 minute
-        httpOnly: false,
-        secure: !isEmulator,
-        sameSite: 'lax',
-        domain: testCookieDomain,
-        path: '/',
-    });
-  
-    response.test = {
-        cookieSet: true,
-        cookieName: 'test_cookie',
-        cookieDomain: testCookieDomain || '(none)',
-    };
-  
-    res.status(200).json(response);
+        if (!token) {
+            console.log('[DEBUG] No authentication token found');
+            return res.status(401).json({
+                success: false,
+                error: 'Authentication required',
+                message: 'Authentication required',
+            });
+        }
+    
+        // Verify user from token
+        let userId;
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            userId = decoded.githubId;
+            console.log('[DEBUG] User identified:', userId);
+        } catch (tokenError) {
+            console.error('[DEBUG] Token verification failed:', tokenError);
+            return res.status(401).json({
+                success: false,
+                error: "Invalid token: " + tokenError.message,
+            });
+        }
+    
+        // Fetch repositories from Firestore
+        const db = admin.firestore();
+        const userReposRef = db.collection('users').doc(String(userId)).collection('repositories');
+        const reposSnapshot = await userReposRef.get();
+        
+        const repositories = [];
+        
+        reposSnapshot.forEach(doc => {
+            repositories.push({
+                id: doc.id,
+                ...doc.data(),
+            });
+        });
+    
+        console.log('[DEBUG] Retrieved repositories for user:', userId, 'Count:', repositories.length);
+    
+        return res.status(200).json({
+            success: true,
+            repositories,
+        });
+    
+    } catch (error) {
+        console.error('[DEBUG] Error fetching repositories:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Server error',
+            message: error.message,
+        });
+    }
 });
 
 // Make sure we have only one export

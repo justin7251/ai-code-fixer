@@ -19,12 +19,23 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Public route (any authenticated user can access)
-app.get("/github/repos", authenticateUser, async (req, res) => {
+app.get("/github/user-repos", authenticateUser, async (req, res) => {
     try {
         const response = await axios.get("https://api.github.com/user/repos", {
             headers: {Authorization: `token ${req.user.accessToken}`},
         });
 
+        res.json(response.data);
+    } catch (error) {
+        res.status(500).json({error: "Failed to fetch repositories"});
+    }
+});
+
+app.get("/github/available-repos", authenticateUser, async (req, res) => {
+    try {
+        const response = await axios.get("https://api.github.com/repositories", {
+            headers: {Authorization: `token ${req.user.accessToken}`},
+        });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({error: "Failed to fetch repositories"});
