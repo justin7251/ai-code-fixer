@@ -163,12 +163,24 @@ app.get('/github/callback', async (req, res) => {
     try {
         const code = req.query.code;
         console.log('[GITHUB CALLBACK] Received code from GitHub callback');
+
+        if (isEmulator) {
+            console.log('[DEBUG] Emulator mode detected, using development GitHub credentials');
+            const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID_DEV;
+            const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET_DEV;
+        } else {
+            const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+            const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+        }
+
+        console.log('[DEBUG] GITHUB_CLIENT_ID:', GITHUB_CLIENT_ID);
+        console.log('[DEBUG] GITHUB_CLIENT_SECRET:', GITHUB_CLIENT_SECRET);
     
         const tokenResponse = await axios.post(
             'https://github.com/login/oauth/access_token',
             {
-                client_id: process.env.GITHUB_CLIENT_ID,
-                client_secret: process.env.GITHUB_CLIENT_SECRET,
+                client_id: GITHUB_CLIENT_ID,
+                client_secret: GITHUB_CLIENT_SECRET,
                 code,
             },
             {
