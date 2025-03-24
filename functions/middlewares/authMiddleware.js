@@ -1,7 +1,7 @@
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_very_secure_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function authenticateUser(req, res, next) {
     const token = (req.headers.authorization && req.headers.authorization.split(" ")[1]) || 

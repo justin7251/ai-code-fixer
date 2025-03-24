@@ -5,7 +5,7 @@ const {v4: uuidv4} = require('uuid');
 const {Octokit} = require('@octokit/rest');
 const cors = require('cors')({origin: true, credentials: true});
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 const jwt = require('jsonwebtoken');
 
 // Initialize Firebase Admin if not already initialized
