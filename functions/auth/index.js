@@ -604,9 +604,7 @@ app.post('/github/add-repos', async (req, res) => {
 app.get('/verify-session', (req, res) => {
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');    
    
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {

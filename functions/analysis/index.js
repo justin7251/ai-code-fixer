@@ -206,6 +206,97 @@ app.get('/:analysisId', authenticate, async (req, res) => {
     }
 });
 
+// Refresh an existing analysis
+app.post('/refresh/:repoId', authenticate, async (req, res) => {
+    try {
+        const {repoId} = req.params;
+        const {branch} = req.body;
+    
+        if (!repoId) {
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: 'Repository ID required',
+            });
+        }
+    
+        // Check if any analysis is already running for this repo
+        const db = admin.firestore();
+        const runningAnalysisRef = await db.collection('analyses')
+            .where('repoId', '==', parseInt(repoId, 10))
+            .where('status', 'in', ['pending', 'running'])
+            .limit(1)
+            .get();
+    
+        if (!runningAnalysisRef.empty) {
+            return res.status(400).json({
+                error: 'Analysis In Progress',
+                message: 'An analysis is already running for this repository',
+                analysis: runningAnalysisRef.docs[0].data(),
+            });
+        }
+    
+        // Get repository details from the user's repositories
+        const repoRef = await db.collection('users')
+            .doc(String(req.user.githubId))
+            .collection('repositories')
+            .where('repoId', '==', String(repoId))
+            .limit(1)
+            .get();
+    
+        if (repoRef.empty) {
+            return res.status(404).json({
+                error: 'Not Found',
+                message: 'Repository not found or not accessible',
+            });
+        }
+    
+        const repoData = repoRef.docs[0].data();
+        const branchToUse = branch || repoData.defaultBranch || 'main';
+    
+        // Create a new analysis record
+        const analysisId = uuidv4();
+        const analysisData = {
+            id: analysisId,
+            repoId: parseInt(repoId, 10),
+            repoName: repoData.name,
+            repoFullName: repoData.fullName,
+            branch: branchToUse,
+            userId: req.user.githubId,
+            status: 'pending',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            issues: [],
+            issueCount: 0,
+        };
+    
+        await db.collection('analyses').doc(analysisId).set(analysisData);
+    
+        // Update the status to running and queue the analysis process
+        await db.collection('analyses').doc(analysisId).update({
+            status: 'running',
+        });
+    
+        // Start the analysis process asynchronously
+        runAnalysis(analysisId, repoData.fullName, branchToUse, req.user.githubToken)
+            .catch(err => console.error(`Analysis error for ${analysisId}:`, err));
+    
+        return res.status(200).json({
+            success: true,
+            message: 'Analysis refresh started successfully',
+            analysis: {
+                ...analysisData,
+                status: 'running',
+            },
+        });
+    
+    } catch (error) {
+        console.error('Refresh analysis error:', error);
+        return res.status(500).json({
+            error: 'Internal Server Error',
+            message: 'Failed to refresh analysis',
+        });
+    }
+});
+
 // Function to run the actual PMD analysis on a repository
 async function runAnalysis(analysisId, repoFullName, branch, githubToken) {
     const db = admin.firestore();
