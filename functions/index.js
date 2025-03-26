@@ -30,6 +30,7 @@ const auth = require("./auth");
 const api = require("./api");
 const jobs = require("./jobs");
 const webhooks = require("./webhooks");
+const analysis = require("./analysis");
 
 // Helper function to safely get config
 const getConfig = () => {
@@ -98,4 +99,5 @@ module.exports = {
     api,
     jobs,
     webhooks,
+    analysis,
 };
