@@ -47,13 +47,8 @@ app.use((req, res, next) => {
 });
 
 // Use different GitHub credentials based on environment
-const GITHUB_CLIENT_ID = isEmulator 
-    ? config.github.dev_client_id  // Development client ID
-    : config.github.client_id;     // Production client ID
-    
-const GITHUB_CLIENT_SECRET = isEmulator
-    ? config.github.dev_client_secret  // Development client secret
-    : config.github.client_secret;     // Production client secret
+const GITHUB_CLIENT_ID = config.github.client_id;
+const GITHUB_CLIENT_SECRET = config.github.client_secret;
 
 // Load JWT secret with multiple fallbacks
 let JWT_SECRET;
@@ -91,6 +86,9 @@ const FRONTEND_URL = isEmulator
     : "https://ai-code-fixer.web.app"; // Production frontend URL
 
 // Validate environment variables
+if (!GITHUB_CLIENT_ID) {
+    throw new Error("Missing required environment GITHUB_CLIENT_ID.");
+}
 if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !JWT_SECRET) {
     throw new Error("Missing required environment variables.");
 }
@@ -109,7 +107,7 @@ app.use(limiter);
 
 // Set proper cookie options
 app.use(session({
-    secret: config.session.secret_key || 'your-fallback-secret',
+    secret: config.session.secret_key,
     resave: false,
     saveUninitialized: false,
     cookie: {

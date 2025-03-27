@@ -16,7 +16,6 @@ export default function ProjectAnalysisPage() {
     { rule: 'EmptyCatchBlock', count: 2, severity: 'ERROR', description: 'Empty catch blocks should be avoided' },
     { rule: 'UnnecessaryFullyQualifiedName', count: 7, severity: 'INFO', description: 'Unnecessary fully qualified name detected' },
     { rule: 'AvoidDuplicateLiterals', count: 12, severity: 'WARNING', description: 'Avoid duplicate string literals' },
-    // This is sample data - replace with actual PMD analysis data
   ]);
 
           
@@ -42,20 +41,22 @@ export default function ProjectAnalysisPage() {
     const fetchAnalysis = async () => {
       setIsLoading(true);
       try {
-        // Get auth token from localStorage - don't call useAuth() here
         const authToken = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
         
         if (!authToken) {
           throw new Error('Authentication token not found');
         }
-
+        
+        console.log('Fetching analysis for repo ID:', id);
+        
         const response = await fetch(`${baseUrl}/refresh/${id}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`
           },
-          body: JSON.stringify({ branch: 'main' })
+          body: JSON.stringify({ branch: 'main' }),
+          credentials: 'include'
         });
         
         if (!response.ok) {
@@ -96,7 +97,8 @@ export default function ProjectAnalysisPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify({ branch: 'main' })
+        body: JSON.stringify({ branch: 'main' }),
+        credentials: 'include'
       });
       
       if (!response.ok) {

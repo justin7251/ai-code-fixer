@@ -246,13 +246,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) return false;
     
     try {
-      const isDev = process.env.NODE_ENV === 'development';
-      const baseUrl = isDev
-        ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
-        : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
+      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+  
       const response = await fetch(`${baseUrl}/verify-session`, {
-        method: 'GET',
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

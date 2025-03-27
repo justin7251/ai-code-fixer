@@ -1,54 +1,46 @@
 const functions = require('firebase-functions');
-const admin = require('firebase-admin');
+const admin = require('../firebase-admin');
 
 const {v4: uuidv4} = require('uuid');
-const {Octokit} = require('@octokit/rest');
-const cors = require('cors')({origin: true, credentials: true});
+const cors = require('cors')({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+});
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const jwt = require('jsonwebtoken');
 
-// Initialize Firebase Admin if not already initialized
-if (!admin.apps.length) {
-    admin.initializeApp();
-}
-
 const express = require('express');
 const app = express();
+
+// Apply CORS middleware with proper configuration
+app.use(cors);
+app.use(express.json());
+
+// Make sure OPTIONS requests are handled properly
+app.options('*', cors());
 
 // Middleware to authenticate requests
 const authenticate = async (req, res, next) => {
     try {
-    // Get auth token from cookies or Authorization header
-        const token = 
-      (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') 
-          ? req.headers.authorization.substring(7) : null) ||
-      req.cookies.auth_token;
-    
-        if (!token) {
-            return res.status(401).json({ 
-                error: 'Unauthorized', 
-                message: 'Authentication required', 
-            });
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Unauthorized', message: 'Missing or invalid authorization token' });
         }
-    
+        
+        const token = authHeader.split('Bearer ')[1];
         // Verify token
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded;
-    
+        
         return next();
     } catch (error) {
         console.error('Authentication error:', error);
-        return res.status(401).json({ 
-            error: 'Unauthorized', 
-            message: 'Invalid authentication', 
-        });
+        res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
     }
 };
-
-// CORS middleware for all routes
-app.use(cors);
-app.use(express.json());
 
 // Start a new code analysis
 app.post('/start', authenticate, async (req, res) => {
@@ -210,7 +202,7 @@ app.get('/:analysisId', authenticate, async (req, res) => {
 app.post('/refresh/:repoId', authenticate, async (req, res) => {
     try {
         const {repoId} = req.params;
-        const {branch} = req.body;
+        const {branch} = req.body || {};
     
         if (!repoId) {
             return res.status(400).json({
@@ -304,7 +296,9 @@ async function runAnalysis(analysisId, repoFullName, branch, githubToken) {
     try {
         console.log(`Starting analysis ${analysisId} for ${repoFullName}`);
     
-        // Initialize GitHub client
+        // Import Octokit dynamically - this resolves the ESM issue
+        const {Octokit} = await import('@octokit/rest');
+    
         const octokit = new Octokit({
             auth: githubToken,
         });
@@ -567,4 +561,4 @@ function extractCodeSnippet(content, lineNumber) {
 }
 
 // Export the Express app as a Firebase function
-exports.analysis = functions.https.onRequest(app); 
+exports.app = functions.https.onRequest(app); 
