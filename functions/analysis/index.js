@@ -2,12 +2,7 @@ const functions = require('firebase-functions');
 const admin = require('../firebase-admin');
 
 const {v4: uuidv4} = require('uuid');
-const cors = require('cors')({
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-});
+const cors = require('cors');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const jwt = require('jsonwebtoken');
@@ -15,19 +10,18 @@ const jwt = require('jsonwebtoken');
 const express = require('express');
 const app = express();
 
-// Apply CORS middleware with proper configuration
-app.use(cors);
-app.use(express.json());
-
-// Make sure OPTIONS requests are handled properly
-app.options('*', cors());
+// Apply CORS as middleware correctly
+app.use(cors({
+    origin: true,
+    credentials: true,
+}));
 
 // Middleware to authenticate requests
 const authenticate = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Unauthorized', message: 'Missing or invalid authorization token' });
+            return res.status(401).json({error: 'Unauthorized', message: 'Missing or invalid authorization token'});
         }
         
         const token = authHeader.split('Bearer ')[1];
@@ -38,7 +32,7 @@ const authenticate = async (req, res, next) => {
         return next();
     } catch (error) {
         console.error('Authentication error:', error);
-        res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
+        res.status(401).json({error: 'Unauthorized', message: 'Invalid token'});
     }
 };
 
@@ -198,11 +192,13 @@ app.get('/:analysisId', authenticate, async (req, res) => {
     }
 });
 
-// Refresh an existing analysis
+// Analysis refresh endpoint with GitHub API fallback for fresh repositories
 app.post('/refresh/:repoId', authenticate, async (req, res) => {
     try {
         const {repoId} = req.params;
-        const {branch} = req.body || {};
+        const {branch, repoName, repoFullName} = req.body || {};
+
+        console.log(`Starting analysis refresh for repo ID: ${repoId}, branch: ${branch || 'default'}`);
     
         if (!repoId) {
             return res.status(400).json({
@@ -210,81 +206,193 @@ app.post('/refresh/:repoId', authenticate, async (req, res) => {
                 message: 'Repository ID required',
             });
         }
-    
+
         // Check if any analysis is already running for this repo
         const db = admin.firestore();
-        const runningAnalysisRef = await db.collection('analyses')
-            .where('repoId', '==', parseInt(repoId, 10))
-            .where('status', 'in', ['pending', 'running'])
-            .limit(1)
-            .get();
-    
-        if (!runningAnalysisRef.empty) {
-            return res.status(400).json({
-                error: 'Analysis In Progress',
-                message: 'An analysis is already running for this repository',
-                analysis: runningAnalysisRef.docs[0].data(),
-            });
+        try {
+            const runningAnalysisRef = await db.collection('analyses')
+                .where('repoId', '==', parseInt(repoId, 10))
+                .where('status', 'in', ['pending', 'running'])
+                .limit(1)
+                .get();
+      
+            if (!runningAnalysisRef.empty) {
+                return res.status(400).json({
+                    error: 'Analysis In Progress',
+                    message: 'An analysis is already running for this repository',
+                    analysis: runningAnalysisRef.docs[0].data(),
+                });
+            }
+        } catch (dbError) {
+            console.error('Database error checking running analyses:', dbError);
         }
-    
-        // Get repository details from the user's repositories
-        const repoRef = await db.collection('users')
-            .doc(String(req.user.githubId))
-            .collection('repositories')
-            .where('repoId', '==', String(repoId))
-            .limit(1)
-            .get();
-    
-        if (repoRef.empty) {
-            return res.status(404).json({
-                error: 'Not Found',
-                message: 'Repository not found or not accessible',
-            });
-        }
-    
-        const repoData = repoRef.docs[0].data();
-        const branchToUse = branch || repoData.defaultBranch || 'main';
-    
-        // Create a new analysis record
-        const analysisId = uuidv4();
-        const analysisData = {
-            id: analysisId,
-            repoId: parseInt(repoId, 10),
-            repoName: repoData.name,
-            repoFullName: repoData.fullName,
-            branch: branchToUse,
-            userId: req.user.githubId,
-            status: 'pending',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            issues: [],
-            issueCount: 0,
-        };
-    
-        await db.collection('analyses').doc(analysisId).set(analysisData);
-    
-        // Update the status to running and queue the analysis process
-        await db.collection('analyses').doc(analysisId).update({
-            status: 'running',
-        });
-    
-        // Start the analysis process asynchronously
-        runAnalysis(analysisId, repoData.fullName, branchToUse, req.user.githubToken)
-            .catch(err => console.error(`Analysis error for ${analysisId}:`, err));
-    
-        return res.status(200).json({
-            success: true,
-            message: 'Analysis refresh started successfully',
-            analysis: {
-                ...analysisData,
+
+        // Get repository details - with GitHub API fallback
+        try {
+            // First try to get the repo from Firestore
+            let repoData = null;
+            console.log(`Looking for repository with ID: ${repoId}`);
+            
+            const repoDoc = await db.collection('repositories')
+                .where('id', '==', parseInt(repoId, 10))
+                .limit(1)
+                .get();
+                
+            if (!repoDoc.empty) {
+                repoData = repoDoc.docs[0].data();
+                console.log(`Found repository in database: ${repoData.fullName}`);
+            } else if (repoName && repoFullName) {
+                console.log(`Repository not found in database, using provided data: ${repoFullName}`);
+                repoData = {
+                    id: parseInt(repoId, 10),
+                    name: repoName,
+                    fullName: repoFullName,
+                    defaultBranch: branch || 'main',
+                };
+                
+                // Save this repository for future use
+                try {
+                    await db.collection('repositories').doc(repoId.toString()).set(repoData);
+                    console.log(`Added repository ${repoFullName} to database`);
+                } catch (saveError) {
+                    console.warn(`Could not save repository data: ${saveError.message}`);
+                }
+            } else {
+                console.log(`Repository not in database. Attempting to fetch from GitHub API...`);
+                // add  collection to firestore
+                await db.collection('repositories').doc(repoId.toString()).set({
+                    id: repoId,
+                    name: repoName,
+                    fullName: repoFullName,
+                    defaultBranch: branch || 'main',
+                    status: 'pending',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    issues: [],
+                });
+                
+                if (!req.user?.githubToken) {
+                    return res.status(400).json({
+                        error: 'Missing Token',
+                        message: 'GitHub token required to fetch repository information',
+                    });
+                }
+                
+                // Import Octokit dynamically
+                const {Octokit} = await import('@octokit/rest');
+                
+                const octokit = new Octokit({
+                    auth: req.user.githubToken,
+                });
+                
+                try {
+                    // First try to get the repo directly by ID
+                    const {data: repo} = await octokit.repos.getById({
+                        repository_id: parseInt(repoId, 10),
+                    });
+                    
+                    repoData = {
+                        id: repo.id,
+                        name: repo.name,
+                        fullName: repo.full_name,
+                        defaultBranch: repo.default_branch,
+                        description: repo.description,
+                        url: repo.html_url,
+                        language: repo.language,
+                        fork: repo.fork,
+                        stars: repo.stargazers_count,
+                        owner: {
+                            id: repo.owner.id,
+                            login: repo.owner.login,
+                            url: repo.owner.html_url,
+                            avatar: repo.owner.avatar_url,
+                        },
+                    };
+                    
+                    // Save to Firestore for future use
+                    await db.collection('repositories').doc(repoId.toString()).set(repoData);
+                    console.log(`Fetched and saved repository ${repoData.fullName} from GitHub API`);
+                    
+                } catch (githubError) {
+                    console.error(`Failed to fetch repository from GitHub API:`, githubError);
+                    
+                    // Look for any previous analysis as fallback
+                    const prevAnalysis = await db.collection('analyses')
+                        .where('repoId', '==', parseInt(repoId, 10))
+                        .orderBy('timestamp', 'desc')
+                        .limit(1)
+                        .get();
+                        
+                    if (!prevAnalysis.empty) {
+                        const analysisData = prevAnalysis.docs[0].data();
+                        console.log(`Found previous analysis for repository: ${analysisData.repoFullName}`);
+                        
+                        repoData = {
+                            id: parseInt(repoId, 10),
+                            name: analysisData.repoName,
+                            fullName: analysisData.repoFullName,
+                            defaultBranch: analysisData.branch || 'main',
+                        };
+                    } else {
+                        // If we still can't find repo information, return an error
+                        return res.status(404).json({
+                            error: 'Not Found',
+                            message: 'Repository not found.',
+                        });
+                    }
+                }
+            }
+            
+            const branchToUse = branch || repoData.defaultBranch || 'main';
+      
+            // Create a new analysis record
+            const analysisId = uuidv4();
+            const analysisData = {
+                id: analysisId,
+                repoId: parseInt(repoId, 10),
+                repoName: repoData.name,
+                repoFullName: repoData.fullName,
+                branch: branchToUse,
+                userId: req.user?.githubId || "anonymous",
+                status: 'pending',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                issues: [],
+                issueCount: 0,
+            };
+      
+            // Save the initial analysis record
+            await db.collection('analyses').doc(analysisId).set(analysisData);
+            
+            // Update status to running
+            await db.collection('analyses').doc(analysisId).update({
                 status: 'running',
-            },
-        });
-    
+            });
+            
+            // Start the actual analysis process asynchronously
+            runAnalysis(analysisId, repoData.fullName, branchToUse, req.user.githubToken)
+                .catch(err => console.error(`Analysis error for ${analysisId}:`, err));
+            
+            // Return the initial response to client
+            return res.status(200).json({
+                success: true,
+                message: 'Analysis started successfully',
+                analysis: {
+                    ...analysisData,
+                    status: 'running',
+                },
+            });
+            
+        } catch (repoError) {
+            console.error('Error processing repository:', repoError);
+            return res.status(500).json({
+                error: 'Repository Error',
+                message: 'Failed to process repository: ' + repoError.message,
+            });
+        }
     } catch (error) {
-        console.error('Refresh analysis error:', error);
+        console.error('Refresh analysis unexpected error:', error);
         return res.status(500).json({
             error: 'Internal Server Error',
-            message: 'Failed to refresh analysis',
+            message: 'Failed to refresh analysis: ' + error.message,
         });
     }
 });
@@ -560,5 +668,5 @@ function extractCodeSnippet(content, lineNumber) {
     return snippet;
 }
 
-// Export the Express app as a Firebase function
-exports.app = functions.https.onRequest(app); 
+// Export the Express app directly
+module.exports = functions.https.onRequest(app); 
