@@ -55,7 +55,7 @@ export default function ProjectAnalysisPage() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`
           },
-          body: JSON.stringify({ branch: 'main' }),
+          body: JSON.stringify({ branch: 'main', repoName: repository.name, repoFullName: repository.fullName }),
           credentials: 'include'
         });
         
