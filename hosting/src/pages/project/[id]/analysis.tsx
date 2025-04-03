@@ -2,10 +2,12 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthProvider';
 
 export default function ProjectAnalysisPage() {
   const router = useRouter();
   const { id } = router.query;
+  const { user } = useAuth();
   const [repository, setRepository] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pmdAnalysis, setPmdAnalysis] = useState([
@@ -14,8 +16,13 @@ export default function ProjectAnalysisPage() {
     { rule: 'EmptyCatchBlock', count: 2, severity: 'ERROR', description: 'Empty catch blocks should be avoided' },
     { rule: 'UnnecessaryFullyQualifiedName', count: 7, severity: 'INFO', description: 'Unnecessary fully qualified name detected' },
     { rule: 'AvoidDuplicateLiterals', count: 12, severity: 'WARNING', description: 'Avoid duplicate string literals' },
-    // This is sample data - replace with actual PMD analysis data
   ]);
+
+          
+  const isDev = process.env.NODE_ENV === 'development';
+  const baseUrl = isDev
+    ? 'http://localhost:5001/ai-code-fixer/us-central1/analysis'
+    : 'https://us-central1-ai-code-fixer.cloudfunctions.net/analysis';
 
   useEffect(() => {
     // Load selected repository from localStorage
@@ -31,22 +38,83 @@ export default function ProjectAnalysisPage() {
       console.error('Error loading repository data:', e);
     }
 
-    // TODO: Replace with actual API call to get PMD analysis
-    // Example:
-    // const fetchAnalysis = async () => {
-    //   setIsLoading(true);
-    //   try {
-    //     const response = await fetch(`/api/projects/${id}/analysis`);
-    //     const data = await response.json();
-    //     setPmdAnalysis(data.pmdWarnings);
-    //   } catch (error) {
-    //     console.error('Error fetching analysis:', error);
-    //   } finally {
-    //     setIsLoading(false);
-    //   }
-    // };
-    // fetchAnalysis();
+    const fetchAnalysis = async () => {
+      setIsLoading(true);
+      try {
+        const authToken = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
+        
+        if (!authToken) {
+          throw new Error('Authentication token not found');
+        }
+        
+        console.log('Fetching analysis for repo ID:', id);
+        
+        const response = await fetch(`${baseUrl}/refresh/${id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ branch: 'main', repoName: repository.name, repoFullName: repository.fullName }),
+          credentials: 'include'
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to refresh analysis');
+        }
+        
+        const data = await response.json();
+        setPmdAnalysis(data.analysis?.issues || []);
+        
+      } catch (error) {
+        console.error('Error fetching analysis:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    // Only run the analysis if we have a valid repository ID
+    if (id) {
+      fetchAnalysis();
+    }
   }, [id]);
+
+  // Update the Refresh Analysis button to call the same fetchAnalysis function
+  const handleRefreshAnalysis = async () => {
+    setIsLoading(true);
+    try {
+      // Get auth token
+      const authToken = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
+      
+      if (!authToken) {
+        throw new Error('Authentication token not found');
+      }
+    
+      const response = await fetch(`${baseUrl}/refresh/${id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ branch: 'main' }),
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to refresh analysis');
+      }
+      
+      const data = await response.json();
+      setPmdAnalysis(data.analysis?.issues || []);
+      
+    } catch (error) {
+      console.error('Error refreshing analysis:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!repository) {
     return (
@@ -79,7 +147,7 @@ export default function ProjectAnalysisPage() {
             <h1 className="text-2xl font-bold">PMD Analysis Results</h1>
             <button 
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center"
-              onClick={() => setIsLoading(true)}
+              onClick={handleRefreshAnalysis}
             >
               {isLoading ? (
                 <>
