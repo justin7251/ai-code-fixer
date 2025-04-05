@@ -1,10 +1,9 @@
 export default function handler(req, res) {
   // GitHub OAuth configuration
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = process.env.GITHUB_CLIENT_ID_DEV;
   
   // Fix: Add fallback for base URL
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-                  (process.env.NEXT_PUBLIC_BASE_URL ? `https://${process.env.NEXT_PUBLIC_BASE_URL}` : 'http://localhost:5000');
+  const baseUrl = 'http://localhost:5000';
   
   const redirectUri = `${baseUrl}/api/auth/github/callback`;
   
