@@ -22,6 +22,11 @@ export default async function handler(req, res) {
     if (!cookieState || cookieState !== state) {
       return res.status(403).redirect('/?error=invalid_state');
     }
+
+    const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+    const callbackURL = isEmulator 
+    ? 'http://localhost:5000/api/auth/github/callback'
+    : 'https://ai-code-fixer.web.app/api/auth/github/callback';
     
     // Exchange code for access token
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
@@ -31,10 +36,10 @@ export default async function handler(req, res) {
         'Accept': 'application/json',
       },
       body: JSON.stringify({
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        client_id: process.env.GITHUB_CLIENT_ID_DEV,
+        client_secret: process.env.GITHUB_CLIENT_SECRET_DEV,
         code,
-        redirect_uri: process.env.NEXT_PUBLIC_BASE_URL + '/api/auth/github/callback',
+        redirect_uri: callbackURL,
       }),
     });
     
@@ -75,6 +80,6 @@ export default async function handler(req, res) {
     
   } catch (error) {
     console.error('GitHub callback error:', error);
-    return res.status(500).redirect('/?error=server_error');
+    return res.status(500).redirect('/?error=' + error);
   }
 } 
