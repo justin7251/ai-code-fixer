@@ -1,6 +1,5 @@
 import NextAuth, { AuthOptions } from "next-auth";
-import GithubProvider from "next-auth/providers/github";
-import { FirestoreAdapter } from "@next-auth/firebase-adapter";
+import GitHubProvider from "next-auth/providers/github";
 import admin from "firebase-admin";
 import serviceAccount from '../../../../keys/serviceAccountKey.json';
 
@@ -11,17 +10,39 @@ if (!admin.apps.length) {
   });
 }
 
+// Get environment variables with fallbacks for development
+const nextAuthUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+const nextAuthSecret = process.env.NEXTAUTH_SECRET || 'your-secret-key-here';
+const githubClientId = process.env.GITHUB_CLIENT_ID_DEV;
+const githubClientSecret = process.env.GITHUB_CLIENT_SECRET_DEV;
+
+// Validate required environment variables
+if (!githubClientId || !githubClientSecret) {
+  console.error('Missing GitHub OAuth credentials. Please set GITHUB_CLIENT_ID_DEV and GITHUB_CLIENT_SECRET_DEV environment variables.');
+}
+
 export const authOptions: AuthOptions = {
   providers: [
-    GithubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    GitHubProvider({
+      clientId: githubClientId || '',
+      clientSecret: githubClientSecret || '',
       authorization: {
-        params: { scope: "read:user user:email repo" },
+        params: { 
+          scope: "read:user user:email repo",
+          redirect_uri: `${nextAuthUrl}/api/auth/callback/github`
+        },
       },
       profile(profile) {
+        console.log('[GITHUB] Profile received:', {
+          id: profile.id,
+          login: profile.login,
+          name: profile.name,
+          email: profile.email,
+          avatar: profile.avatar_url,
+        });
+        
         return {
-          id: profile.id.toString(),
+          id: String(profile.id),
           name: profile.name || profile.login,
           email: profile.email,
           image: profile.avatar_url,
@@ -30,76 +51,139 @@ export const authOptions: AuthOptions = {
       },
     }),
   ],
-  adapter: FirestoreAdapter(admin.firestore()),
-  secret: process.env.NEXTAUTH_SECRET,
-  // Use JWT strategy to avoid cross-domain cookie issues
+  pages: {
+    signIn: '/auth/signin',
+    error: '/auth/error',
+  },
+  secret: nextAuthSecret,
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
-    async jwt({ token, account, profile }) {
-      console.log("JWT Callback - Token before update:", token);
-      if (account && account.access_token) {
-        token.accessToken = account.access_token;
-        token.provider = account.provider;
-        token.githubUsername = profile?.login || profile?.name;
-        token.githubId = profile?.id?.toString();
+    async signIn({ user, account, profile }) {
+      try {
+        console.log('[NEXTAUTH] SignIn callback:', { 
+          hasUser: !!user,
+          hasAccount: !!account,
+          hasProfile: !!profile
+        });
+
+        if (!account || !profile) {
+          console.error('[NEXTAUTH] Missing account or profile in signIn callback');
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.error('[NEXTAUTH] Error in signIn callback:', error);
+        return false;
       }
-      console.log("JWT Callback - Token after update:", token);
-      return token;
+    },
+    async redirect({ url, baseUrl }) {
+      // Log the redirect attempt
+      console.log('[NEXTAUTH] Redirect callback:', { url, baseUrl });
+      
+      try {
+        // Handle redirects consistently
+        if (url.startsWith("/")) {
+          const redirectUrl = `${baseUrl}${url}`;
+          console.log('[NEXTAUTH] Redirecting to:', redirectUrl);
+          return redirectUrl;
+        } else if (new URL(url).origin === baseUrl) {
+          console.log('[NEXTAUTH] Redirecting to same origin:', url);
+          return url;
+        }
+        console.log('[NEXTAUTH] Fallback redirect to baseUrl:', baseUrl);
+        return baseUrl;
+      } catch (error) {
+        console.error('[NEXTAUTH] Error in redirect callback:', error);
+        return baseUrl;
+      }
+    },
+    async jwt({ token, account, profile, user }) {
+      try {
+        console.log('[NEXTAUTH] JWT callback:', { 
+          hasToken: !!token,
+          hasAccount: !!account,
+          hasProfile: !!profile,
+          hasUser: !!user
+        });
+        
+        if (user) {
+          // Always save user info to token when available
+          token.id = user.id;
+          token.name = user.name;
+          token.email = user.email;
+          token.picture = user.image;
+          token.username = user.username;
+          token.githubUsername = user.username;
+          token.githubId = user.id;
+        }
+        
+        if (account && account.access_token) {
+          token.accessToken = account.access_token;
+          token.provider = "github";
+        }
+        
+        return token;
+      } catch (error) {
+        console.error('[NEXTAUTH] Error in JWT callback:', error);
+        return token;
+      }
     },
     async session({ session, token, user }) {
-      console.log("Session Callback - Session before update:", session);
-      session.accessToken = token.accessToken as string;
-      session.provider = token.provider as string;
-      session.githubUsername = token.githubUsername as string;
-      session.githubId = token.githubId as string;
-      if (user) {
-        session.user.id = user.id;
-        session.user.username = (user as any).username || token.githubUsername;
-      }
-      console.log("Session Callback - Session after update:", session);
-      return session;
-    },
-  },
-  // Properly configure cookies to avoid SameSite issues
-  cookies: {
-    sessionToken: {
-      name: `next-auth.session-token`,
-      options: {
-        httpOnly: true, 
-        sameSite: "lax", // Use "lax" instead of "none" to avoid third-party cookie warnings
-        path: "/",
-        secure: process.env.NODE_ENV === "production"
-      }
-    },
-    callbackUrl: {
-      name: `next-auth.callback-url`,
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: process.env.NODE_ENV === "production"
-      }
-    },
-    csrfToken: {
-      name: `next-auth.csrf-token`,
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: process.env.NODE_ENV === "production"
+      try {
+        console.log('[NEXTAUTH] Session callback:', { 
+          hasSession: !!session,
+          hasToken: !!token,
+          hasUser: !!session?.user
+        });
+        
+        // Ensure session always has a user object
+        if (!session.user) {
+          session.user = {};
+        }
+        
+        // Add data from token to session
+        session.accessToken = token.accessToken;
+        session.provider = token.provider;
+        session.githubUsername = token.githubUsername as string;
+        session.githubId = token.githubId;
+        
+        // Make sure user object has all properties
+        session.user.id = token.githubId as string;
+        session.user.name = token.name as string || 'GitHub User';
+        session.user.email = token.email as string || '';
+        session.user.image = token.picture as string || '';
+        session.user.username = token.username as string || '';
+        
+        console.log('[NEXTAUTH] Updated session:', {
+          user: session.user ? { 
+            id: session.user.id,
+            name: session.user.name
+          } : null
+        });
+        
+        return session;
+      } catch (error) {
+        console.error('[NEXTAUTH] Error in session callback:', error);
+        return session;
       }
     }
   },
-  // Add additional configuration
-  pages: {
-    signIn: '/login', // Custom login page
-    error: '/auth/error', // Error code passed in query string as ?error=
+  debug: true, // Always enable debug for troubleshooting
+  logger: {
+    error(code, ...message) {
+      console.error('[NEXTAUTH ERROR]', code, message);
+    },
+    warn(code, ...message) {
+      console.warn('[NEXTAUTH WARNING]', code, message);
+    },
+    debug(code, ...message) {
+      console.log('[NEXTAUTH DEBUG]', code, message);
+    },
   },
-  // Debug mode - set to true only during development
-  debug: process.env.NODE_ENV !== "production",
 };
 
-export default NextAuth(authOptions); 
+export default NextAuth(authOptions);
