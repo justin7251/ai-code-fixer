@@ -89,125 +89,125 @@ function analyzeFileContent(content, filePath, fileType) {
                 pattern: /console\.log\(/g,
                 severity: 'WARNING',
                 rule: 'AvoidConsoleLog',
-                description: 'Avoid using console.log in production code'
+                description: 'Avoid using console.log in production code',
             },
             {
                 pattern: /var\s+/g,
                 severity: 'INFO',
                 rule: 'UseConstLet',
-                description: 'Use const or let instead of var'
+                description: 'Use const or let instead of var',
             },
             {
                 pattern: /\/\/\s*TODO/gi,
                 severity: 'INFO',
                 rule: 'TodoComment',
-                description: 'TODO comment found'
+                description: 'TODO comment found',
             },
             {
                 pattern: /if\s*\(\s*([a-zA-Z0-9_$]+)\s*==\s*([^=])/g,
                 severity: 'WARNING',
                 rule: 'UseStrictEquality',
-                description: 'Use === instead of =='
-            }
+                description: 'Use === instead of ==',
+            },
         ],
         typescript: [
             {
                 pattern: /console\.log\(/g,
                 severity: 'WARNING',
                 rule: 'AvoidConsoleLog',
-                description: 'Avoid using console.log in production code'
+                description: 'Avoid using console.log in production code',
             },
             {
                 pattern: /any/g,
                 severity: 'WARNING',
                 rule: 'AvoidAny',
-                description: 'Avoid using "any" type when possible'
+                description: 'Avoid using "any" type when possible',
             },
             {
                 pattern: /\/\/\s*TODO/gi,
                 severity: 'INFO',
                 rule: 'TodoComment',
-                description: 'TODO comment found'
-            }
+                description: 'TODO comment found',
+            },
         ],
         java: [
             {
                 pattern: /System\.out\.println\(/g,
                 severity: 'WARNING',
                 rule: 'AvoidSystemOutPrintln',
-                description: 'Use a logger instead of System.out.println'
+                description: 'Use a logger instead of System.out.println',
             },
             {
                 pattern: /catch\s*\(\s*Exception\s+/g,
                 severity: 'WARNING',
                 rule: 'AvoidCatchingGenericException',
-                description: 'Avoid catching generic Exception'
+                description: 'Avoid catching generic Exception',
             },
             {
                 pattern: /\/\/\s*TODO/gi,
                 severity: 'INFO',
                 rule: 'TodoComment',
-                description: 'TODO comment found'
-            }
+                description: 'TODO comment found',
+            },
         ],
         python: [
             {
                 pattern: /print\(/g,
                 severity: 'INFO',
                 rule: 'AvoidPrint',
-                description: 'Consider using a logger instead of print'
+                description: 'Consider using a logger instead of print',
             },
             {
                 pattern: /except\s*:/g,
                 severity: 'WARNING',
                 rule: 'AvoidBareExcept',
-                description: 'Avoid bare except, specify exception types'
+                description: 'Avoid bare except, specify exception types',
             },
             {
                 pattern: /#\s*TODO/gi,
                 severity: 'INFO',
                 rule: 'TodoComment',
-                description: 'TODO comment found'
-            }
+                description: 'TODO comment found',
+            },
         ],
         php: [
             {
                 pattern: /echo\s+/g,
                 severity: 'INFO',
                 rule: 'AvoidEcho',
-                description: 'Consider using a logger instead of echo'
+                description: 'Consider using a logger instead of echo',
             },
             {
                 pattern: /\$_GET|\$_POST|\$_REQUEST/g,
                 severity: 'WARNING',
                 rule: 'ValidateInput',
-                description: 'Always validate user input from $_GET, $_POST, or $_REQUEST'
-            }
+                description: 'Always validate user input from $_GET, $_POST, or $_REQUEST',
+            },
         ],
         go: [
             {
                 pattern: /fmt\.Print(ln|f)?\(/g,
                 severity: 'INFO',
                 rule: 'AvoidFmtPrint',
-                description: 'Consider using a logger instead of fmt.Print'
-            }
+                description: 'Consider using a logger instead of fmt.Print',
+            },
         ],
         ruby: [
             {
                 pattern: /puts\s+/g,
                 severity: 'INFO',
                 rule: 'AvoidPuts',
-                description: 'Consider using a logger instead of puts'
-            }
+                description: 'Consider using a logger instead of puts',
+            },
         ],
         csharp: [
             {
                 pattern: /Console\.Write(Line)?\(/g,
                 severity: 'INFO',
                 rule: 'AvoidConsoleWrite',
-                description: 'Consider using a logger instead of Console.Write'
-            }
-        ]
+                description: 'Consider using a logger instead of Console.Write',
+            },
+        ],
     };
     
     // Apply rules for this file type
@@ -239,7 +239,7 @@ function analyzeFileContent(content, filePath, fileType) {
                     rule: rule.rule,
                     severity: rule.severity,
                     description: rule.description,
-                    snippet: snippet.trim()
+                    snippet: snippet.trim(),
                 });
             }
         }
@@ -251,5 +251,5 @@ function analyzeFileContent(content, filePath, fileType) {
 module.exports = {
     getOctokit,
     processContents,
-    analyzeFileContent
+    analyzeFileContent,
 }; 

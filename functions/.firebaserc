@@ -1,0 +1,43 @@
+{
+  "projects": {
+    "default": "ai-code-fixer"
+  },
+  "functions": {
+    "predeploy": [],
+    "source": ".",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/coverage/**",
+      "**/test/**",
+      "**/tests/**",
+      "**/__tests__/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/.env*",
+      "**/.env.*",
+      "**/package-lock.json",
+      "**/yarn.lock",
+      "**/tsconfig.json",
+      "**/tsconfig.*.json",
+      "**/.eslintrc.*",
+      "**/.prettierrc.*",
+      "**/jest.config.*",
+      "**/coverage/**",
+      "**/docs/**",
+      "**/examples/**",
+      "**/scripts/**",
+      "**/config/**",
+      "**/migrations/**",
+      "**/seeds/**",
+      "**/tmp/**",
+      "**/temp/**",
+      "**/cache/**",
+      "**/logs/**"
+    ]
+  }
+} 

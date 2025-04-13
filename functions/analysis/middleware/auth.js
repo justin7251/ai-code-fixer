@@ -31,14 +31,14 @@ const authenticate = async (req, res, next) => {
                 req.user = {
                     githubId: 'dev-user',
                     githubToken: process.env.DEV_GITHUB_TOKEN || 'github_pat_test_token',
-                    name: 'Development User'
+                    name: 'Development User',
                 };
                 return next();
             }
             
             return res.status(401).json({
                 error: 'Unauthorized',
-                message: 'Missing authorization token'
+                message: 'Missing authorization token',
             });
         }
         
@@ -53,7 +53,7 @@ const authenticate = async (req, res, next) => {
                 githubToken: decoded.githubToken ? '[PRESENT]' : '[MISSING]',
                 accessToken: decoded.accessToken ? '[PRESENT]' : '[MISSING]',
                 access_token: decoded.access_token ? '[PRESENT]' : '[MISSING]',
-                github_token: decoded.github_token ? '[PRESENT]' : '[MISSING]'
+                github_token: decoded.github_token ? '[PRESENT]' : '[MISSING]',
             };
             
             // Debug - log what's in the token
@@ -70,7 +70,7 @@ const authenticate = async (req, res, next) => {
                 console.error('Token does not contain GitHub token. Token keys:', Object.keys(decoded));
                 return res.status(401).json({
                     error: 'Unauthorized', 
-                    message: 'Token does not contain GitHub credentials'
+                    message: 'Token does not contain GitHub credentials',
                 });
             }
             
@@ -79,7 +79,7 @@ const authenticate = async (req, res, next) => {
                 githubId: decoded.githubId || decoded.id || 'unknown',
                 githubToken: githubToken,
                 name: decoded.name,
-                email: decoded.email
+                email: decoded.email,
             };
             
             console.log(`Authenticated user ${req.user.githubId} with token: ${githubToken ? 'Present' : 'Missing'}`);
@@ -94,14 +94,14 @@ const authenticate = async (req, res, next) => {
                 req.user = {
                     githubId: 'dev-user',
                     githubToken: process.env.DEV_GITHUB_TOKEN || 'github_pat_test_token',
-                    name: 'Development User'
+                    name: 'Development User',
                 };
                 return next();
             }
             
             return res.status(401).json({
                 error: 'Unauthorized',
-                message: 'Invalid token'
+                message: 'Invalid token',
             });
         }
     } catch (error) {
@@ -113,16 +113,16 @@ const authenticate = async (req, res, next) => {
             req.user = {
                 githubId: 'dev-user',
                 githubToken: process.env.DEV_GITHUB_TOKEN || 'github_pat_test_token',
-                name: 'Development User'
+                name: 'Development User',
             };
             return next();
         }
         
         return res.status(401).json({
             error: 'Unauthorized',
-            message: 'Authentication error'
+            message: 'Authentication error',
         });
     }
 };
 
-module.exports = { authenticate, JWT_SECRET }; 
+module.exports = {authenticate, JWT_SECRET}; 

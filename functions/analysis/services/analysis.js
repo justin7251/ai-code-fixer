@@ -1,6 +1,6 @@
 const admin = require('../../firebase-admin');
 const {v4: uuidv4} = require('uuid');
-const { getOctokit, processContents, analyzeFileContent } = require('../utils/github');
+const {getOctokit, processContents, analyzeFileContent} = require('../utils/github');
 
 class AnalysisService {
     constructor() {
@@ -8,7 +8,7 @@ class AnalysisService {
     }
     
     async refreshAnalysis(repoId, user, options = {}) {
-        const { branch, repoName, repoFullName } = options;
+        const {branch, repoName, repoFullName} = options;
         
         if (!repoId) {
             throw new Error('Repository ID required');

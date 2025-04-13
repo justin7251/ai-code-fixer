@@ -1,7 +1,7 @@
 const admin = require('../../firebase-admin');
 const {v4: uuidv4} = require('uuid');
-const { getOctokit } = require('../utils/github');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const {getOctokit} = require('../utils/github');
+const {GoogleGenerativeAI} = require('@google/generative-ai');
 
 class AiFixService {
     constructor() {
@@ -10,7 +10,7 @@ class AiFixService {
     }
     
     async startFix(analysisId, user, options = {}) {
-        const { issues, createPullRequest } = options;
+        const {issues, createPullRequest} = options;
         
         if (!analysisId) {
             throw new Error('Analysis ID is required');
@@ -49,7 +49,7 @@ class AiFixService {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             issuesToFix: issuesToFix,
             fixedIssues: [],
-            createPullRequest: !!createPullRequest
+            createPullRequest: !!createPullRequest,
         };
         
         // Save the fix record
@@ -57,16 +57,16 @@ class AiFixService {
         
         // Start the fix process asynchronously
         this.runAiFix(fixId, analysis, user.githubToken, issuesToFix, !!createPullRequest)
-          .catch(err => console.error(`AI fix error for ${fixId}:`, err));
+            .catch(err => console.error(`AI fix error for ${fixId}:`, err));
         
         // Return immediate response
         return {
-          success: true,
-          message: 'AI auto fix started',
-          fix: {
-            ...fixData,
-            status: 'running'
-          }
+            success: true,
+            message: 'AI auto fix started',
+            fix: {
+                ...fixData,
+                status: 'running',
+            },
         };
     }
     
@@ -79,7 +79,7 @@ class AiFixService {
         
         return {
             success: true,
-            fix: fixDoc.data()
+            fix: fixDoc.data(),
         };
     }
     
@@ -90,7 +90,7 @@ class AiFixService {
             
             // Update status to running
             await this.db.collection('fixes').doc(fixId).update({
-                status: 'running'
+                status: 'running',
             });
             
             // Initialize Octokit with the token
@@ -110,11 +110,11 @@ class AiFixService {
                 for (const example of examples) {
                     try {
                         // Get file content from GitHub
-                        const { data: fileData } = await octokit.repos.getContent({
+                        const {data: fileData} = await octokit.repos.getContent({
                             owner,
                             repo,
                             path: example.file,
-                            ref: analysis.branch
+                            ref: analysis.branch,
                         });
                         
                         // Decode content from base64
@@ -126,7 +126,7 @@ class AiFixService {
                             example.file,
                             issueCategory.rule,
                             issueCategory.description,
-                            example.snippet
+                            example.snippet,
                         );
                         
                         if (fixedContent && fixedContent !== content) {
@@ -140,21 +140,21 @@ class AiFixService {
                                     await octokit.git.getRef({
                                         owner,
                                         repo,
-                                        ref: `heads/${branchName}`
+                                        ref: `heads/${branchName}`,
                                     });
                                 } catch (e) {
                                     // Branch doesn't exist, create it from the current branch
-                                    const { data: refData } = await octokit.git.getRef({
+                                    const {data: refData} = await octokit.git.getRef({
                                         owner,
                                         repo,
-                                        ref: `heads/${analysis.branch}`
+                                        ref: `heads/${analysis.branch}`,
                                     });
                                     
                                     await octokit.git.createRef({
                                         owner,
                                         repo,
                                         ref: `refs/heads/${branchName}`,
-                                        sha: refData.object.sha
+                                        sha: refData.object.sha,
                                     });
                                 }
                                 
@@ -166,7 +166,7 @@ class AiFixService {
                                     message: `Fix ${issueCategory.rule}: ${issueCategory.description}`,
                                     content: Buffer.from(fixedContent).toString('base64'),
                                     branch: branchName,
-                                    sha: fileData.sha
+                                    sha: fileData.sha,
                                 });
                                 
                                 // Record successful fix
@@ -175,7 +175,7 @@ class AiFixService {
                                     file: example.file,
                                     line: example.line,
                                     committed: true,
-                                    branch: branchName
+                                    branch: branchName,
                                 });
                             } else {
                                 // Just record the fix suggestion
@@ -185,7 +185,7 @@ class AiFixService {
                                     line: example.line,
                                     originalContent: content,
                                     fixedContent: fixedContent,
-                                    committed: false
+                                    committed: false,
                                 });
                             }
                         }
@@ -201,7 +201,7 @@ class AiFixService {
                 const branchName = fixedIssues.find(issue => issue.committed).branch;
                 
                 // Create a PR
-                const { data: pullRequest } = await octokit.pulls.create({
+                const {data: pullRequest} = await octokit.pulls.create({
                     owner,
                     repo,
                     title: `AI Auto Fix: Code improvements`,
@@ -210,13 +210,13 @@ ${fixedIssues.map(issue => `- ${issue.rule} in ${issue.file}`).join('\n')}
 
 Please review the changes carefully before merging.`,
                     head: branchName,
-                    base: analysis.branch
+                    base: analysis.branch,
                 });
                 
                 // Update fix record with PR info
                 await this.db.collection('fixes').doc(fixId).update({
                     pullRequestUrl: pullRequest.html_url,
-                    pullRequestNumber: pullRequest.number
+                    pullRequestNumber: pullRequest.number,
                 });
             }
             
@@ -224,7 +224,7 @@ Please review the changes carefully before merging.`,
             await this.db.collection('fixes').doc(fixId).update({
                 status: 'completed',
                 fixedIssues,
-                completedAt: admin.firestore.FieldValue.serverTimestamp()
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             
             console.log(`AI fix ${fixId} completed with ${fixedIssues.length} fixes`);
@@ -237,7 +237,7 @@ Please review the changes carefully before merging.`,
                 await this.db.collection('fixes').doc(fixId).update({
                     status: 'failed',
                     error: error.message || 'Unknown error occurred',
-                    completedAt: admin.firestore.FieldValue.serverTimestamp()
+                    completedAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             } catch (updateError) {
                 console.error('Failed to update fix status:', updateError);
@@ -267,13 +267,13 @@ Please review the changes carefully before merging.`,
                 php: 'php',
                 cs: 'csharp',
                 html: 'html',
-                css: 'css'
+                css: 'css',
             };
             
             language = languageMap[extension] || language;
             
             // Get Gemini model
-            const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const model = this.genAI.getGenerativeModel({model: "gemini-1.5-pro"});
             
             // Prepare the prompt for Gemini
             const prompt = `You are an expert ${language} developer helping fix code issues.
@@ -292,7 +292,8 @@ Full file content:
 ${content}
 \`\`\`
 
-Please provide the entire fixed file content. Keep your edits minimal and focused only on fixing the specific issue. Don't add comments unless they are essential for understanding the fix.`;
+Please provide the entire fixed file content. Keep your edits minimal and focused only on fixing the specific issue.
+Don't add comments unless they are essential for understanding the fix.`;
 
             // Call Gemini API
             const result = await model.generateContent(prompt);
