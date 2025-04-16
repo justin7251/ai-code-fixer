@@ -2,6 +2,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
 import { useState, useEffect } from 'react';
+import { signIn } from "next-auth/react";
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -14,11 +15,6 @@ export default function Home() {
       router.push('/dashboard');
     }
   }, [user, loading, router]);
-  
-  const login = () => {
-    const authBaseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-    window.location.href = `${authBaseUrl}/github/login`;
-  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -46,7 +42,7 @@ export default function Home() {
                   <div className="mt-5 sm:mt-8 sm:flex sm:justify-center lg:justify-start">
                     <div className="rounded-md shadow">
                       <button
-                        onClick={login}
+                        onClick={() => signIn("github")}
                         className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-800 hover:bg-blue-900 md:py-4 md:text-lg md:px-10"
                       >
                         <svg className="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 24 24">
@@ -181,7 +177,7 @@ function calculateTotal(items) {
               Connect your GitHub repository and let our AI fix issues automatically.
             </p>
             <button
-              onClick={login}
+              onClick={() => signIn("github")}
               className="mt-8 w-full inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 sm:w-auto"
             >
               <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
@@ -224,7 +220,7 @@ function calculateTotal(items) {
                   <button
                     type="button"
                     className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                    onClick={login}
+                    onClick={() => signIn("github")}
                   >
                     Connect with GitHub
                   </button>
