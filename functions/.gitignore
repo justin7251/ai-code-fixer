@@ -1,8 +1,0 @@
-node_modules/
-*.local
-
-.env
-
-.runtimeconfig.json
-
-
