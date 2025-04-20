@@ -105,7 +105,7 @@ export default function Dashboard() {
     if (status === 'authenticated' && session) {
       try {
         setIsLoading(true);
-        const response = await fetch('http://localhost:5001/ai-code-fixer/us-central1/api/repositories', {
+        const response = await fetch('http://localhost:5001/api/repositories', {
           method: 'GET',
           credentials: 'include',
           headers: {
@@ -145,9 +145,11 @@ export default function Dashboard() {
     if (status === 'authenticated' && session) {
       try {
         setIsLoadingAvailableRepos(true);
-        const response = await fetch('/api/github/available-repositories', {
+        const response = await fetch('https://api.github.com/user/repos', {
+          method: 'GET',
           headers: {
-            'Authorization': `Bearer ${session.accessToken}`
+            'Authorization': `token ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
           }
         });
         
