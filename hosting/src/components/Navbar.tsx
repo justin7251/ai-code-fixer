@@ -2,8 +2,6 @@ import { useAuth } from '@/context/AuthProvider';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { signIn } from 'next-auth/react';
-import { sign } from 'crypto';
 
 export default function Navbar() {
   const { user, loading, logout } = useAuth();
@@ -37,6 +35,15 @@ export default function Navbar() {
     };
   }, [router]);
 
+  const login = () => {
+    const isDev = process.env.NODE_ENV === 'development';
+    const authBaseUrl = isDev
+      ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
+      : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+    
+    // Use the correct path
+    window.location.href = `${authBaseUrl}/github/login`;
+  };
 
   const handleNavigation = (path: string) => {
     setShowDropdown(false);
@@ -112,7 +119,7 @@ export default function Navbar() {
               </div>
             ) : (
               <button
-                onClick={() => signIn("github")}
+                onClick={login}
                 className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none"
               >
                 <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">

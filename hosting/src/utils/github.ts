@@ -206,4 +206,4 @@ export async function getRepositoryLanguages(
   });
 
   return data;
-} 
+}
