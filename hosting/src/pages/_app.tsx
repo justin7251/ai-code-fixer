@@ -1,23 +1,16 @@
-import { AppProps } from 'next/app';
 import { SessionProvider } from 'next-auth/react';
-import { AuthProvider } from '@/context/AuthProvider';
-import Navbar from '@/components/Navbar';
-import '@/styles/globals.css';
+import type { AppProps } from 'next/app';
+import { AuthProvider } from '../context/AuthProvider';
+import Layout from '../components/Layout';
+import '../styles/globals.css';
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
-
-  const safeSession = {
-    user: pageProps.session?.user || null,
-    expires: pageProps.session?.expires || null
-  };
-
   return (
-    <SessionProvider session={safeSession}>
+    <SessionProvider session={session} refetchInterval={5 * 60} refetchOnWindowFocus={true}>
       <AuthProvider>
-        <div className="min-h-screen bg-gray-50">
-          <Navbar />
+        <Layout>
           <Component {...pageProps} />
-        </div>
+        </Layout>
       </AuthProvider>
     </SessionProvider>
   );

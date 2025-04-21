@@ -23,7 +23,7 @@ if (!admin.apps.length) {
 
 // Get environment variables with fallbacks for development
 const nextAuthUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-const nextAuthSecret = process.env.NEXTAUTH_SECRET || 'your-secure-key-here';
+const nextAuthSecret = process.env.NEXTAUTH_SECRET;
 const githubClientId = process.env.GITHUB_CLIENT_ID_DEV;
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET_DEV;
 
@@ -35,105 +35,70 @@ if (!githubClientId || !githubClientSecret) {
 export const authOptions: AuthOptions = {
   providers: [
     GitHubProvider({
-      clientId: githubClientId || '',
-      clientSecret: githubClientSecret || '',
+      clientId: githubClientId as string,
+      clientSecret: githubClientSecret as string,
       authorization: {
-        params: { 
-          scope: "read:user user:email repo",
-          redirect_uri: `${nextAuthUrl}/api/auth/callback/github`
+        params: {
+          scope: 'read:user user:email repo',
         },
-      },
-      profile(profile) {
-        return {
-          id: String(profile.id),
-          name: profile.name || profile.login,
-          email: profile.email,
-          image: profile.avatar_url,
-          username: profile.login,
-        };
       },
     }),
   ],
-  pages: {
-    signIn: '/auth/signin',
-    error: '/auth/error',
-  },
   secret: nextAuthSecret,
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
-    async jwt({ token, account, profile, user }) {
-      if (account && account.access_token) {
+    async jwt({ token, account, profile }) {
+      if (account) {
         token.accessToken = account.access_token;
-        token.provider = "github";
+        token.provider = account.provider;
       }
-      
-      if (user) {
-        token.id = user.id;
-        token.name = user.name;
-        token.email = user.email;
-        token.picture = user.image;
-        token.username = user.username;
-        token.githubUsername = user.username;
-        token.githubId = user.id;
+      if (profile) {
+        token.githubUsername = profile.login;
+        token.githubId = String(profile.id);
       }
-      
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.accessToken = token.accessToken as string;
-        session.provider = token.provider as string;
-        session.githubUsername = token.githubUsername as string;
-        session.githubId = token.githubId as string;
-        
-        session.user.id = token.githubId as string;
-        session.user.name = token.name as string || 'GitHub User';
-        session.user.email = token.email as string || '';
-        session.user.image = token.picture as string || '';
-        session.user.username = token.username as string || '';
+      if (token) {
+        session.accessToken = token.accessToken;
+        session.provider = token.provider;
+        session.githubUsername = token.githubUsername;
+        session.githubId = token.githubId;
       }
-      
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // If this is a sign-in callback, redirect to dashboard
-      if (url.includes('/api/auth/callback')) {
-        return `${baseUrl}/dashboard`;
-      }
-      // Allow relative URLs
       if (url.startsWith('/')) return `${baseUrl}${url}`;
-      // Allow URLs from the same origin
       else if (new URL(url).origin === baseUrl) return url;
-      // Default to dashboard
       return `${baseUrl}/dashboard`;
     }
   },
   debug: process.env.NODE_ENV === 'development',
-  // Optimize performance
   cookies: {
     sessionToken: {
-      name: `__Secure-next-auth.session-token`,
+      name: `next-auth.session-token`,
       options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: true
+        httpOnly: true, 
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production"
       }
-    }
-  },
-  // Reduce token size and improve performance
-  jwt: {
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-    secret: nextAuthSecret,
-    encode: async ({ secret, token }) => {
-      return JSON.stringify(token);
     },
-    decode: async ({ secret, token }) => {
-      return JSON.parse(token as string);
-    }
+  },
+  pages: {
+    signIn: '/',
+    error: '/',
+  },
+  events: {
+    async signIn({ user, account, profile }) {
+      console.log('User signed in:', user.email);
+    },
+    async signOut({ token, session }) {
+      console.log('User signed out');
+    },
   }
 };
 

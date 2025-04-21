@@ -4,10 +4,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
+import { useSession } from 'next-auth/react';
 
 
 export default function Dashboard() {
   const { user, loading, checkAuth } = useAuth();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [repositories, setRepositories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,11 +76,10 @@ export default function Dashboard() {
 
   // Redirect to home if not authenticated
   useEffect(() => {
-    if (!loading && !user) {
-      console.log('[DASHBOARD] Not authenticated, redirecting to home');
+    if (status === 'unauthenticated' && !loading && !user) {
       router.push('/');
     }
-  }, [user, loading, router]);
+  }, [status, user, loading, router]);
 
   // Effect to handle clicks outside the dropdown
   useEffect(() => {
@@ -101,36 +102,25 @@ export default function Dashboard() {
     setError('');
     
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
-      console.log('Fetching saved repositories from:', `${baseUrl}/github/user-repos`);
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
-        console.error('No authentication token found in localStorage');
+      if (!session?.accessToken) {
         throw new Error('Authentication token not found. Please log in again.');
       }
       
-      const response = await fetch(`${baseUrl}/github/user-repos`, {
-        credentials: 'include',
+      const response = await fetch('https://api.github.com/user/repos', {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
         }
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
-        console.error('Repository fetch error:', data);
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
+        const data = await response.json();
+        throw new Error(data.message || `Error: ${response.status}`);
       }
       
-      console.log('Fetched repositories:', data.repositories?.length || 0);
-      setRepositories(data.repositories || []);
+      const data = await response.json();
+      console.log('Fetched repositories:', data.length);
+      setRepositories(data);
       
       // Check if there's a previously selected repo in localStorage
       const savedRepo = localStorage.getItem('selectedRepo');
@@ -151,31 +141,24 @@ export default function Dashboard() {
     setIsLoadingAvailableRepos(true);
     
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
+      if (!session?.accessToken) {
         throw new Error('Authentication token not found. Please log in again.');
       }
       
-      const response = await fetch(`${baseUrl}/github/repos`, {
-        credentials: 'include',
+      const response = await fetch('https://api.github.com/user/repos', {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
         }
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
+        const data = await response.json();
+        throw new Error(data.message || `Error: ${response.status}`);
       }
       
-      setAvailableRepos(data.repositories || []);
+      const data = await response.json();
+      setAvailableRepos(data);
     } catch (error) {
       console.error('Failed to fetch available repositories:', error);
       setError(`Failed to load available repositories: ${error instanceof Error ? error.message : String(error)}`);
@@ -239,10 +222,12 @@ export default function Dashboard() {
     }
   };
   
-  // Fetch repositories on component mount
+  // Fetch repositories when session is available
   useEffect(() => {
-    fetchRepositories();
-  }, []);
+    if (status === 'authenticated' && session?.accessToken) {
+      fetchRepositories();
+    }
+  }, [status, session?.accessToken]);
   
   // Filter and search repositories
   const filteredRepositories = repositories.filter(repo => {
@@ -297,19 +282,20 @@ export default function Dashboard() {
     fetchRepositories();
   };
   
-  if (loading) {
+  // Check authentication status
+  useEffect(() => {
+    if (status === 'unauthenticated' && !loading) {
+      router.push('/');
+    }
+  }, [status, loading, router]);
+
+  // If loading or not authenticated, show loading state
+  if (loading || status === 'loading' || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-gray-700 mx-auto"></div>
-          <p className="mt-4 text-lg">Loading...</p>
-        </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-16 h-16 border-t-4 border-blue-500 border-solid rounded-full animate-spin"></div>
       </div>
     );
-  }
-
-  if (!user) {
-    return null; // Will redirect in useEffect
   }
 
   return (
