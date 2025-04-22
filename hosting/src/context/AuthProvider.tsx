@@ -61,28 +61,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check auth function
   const checkAuth = async () => {
-    console.log('Session status:', status);
-    console.log('Session data:', session);
-    
     if (status === 'loading') {
       setLoading(true);
       return;
     }
 
     if (status === 'authenticated' && session?.user) {
-      console.log('Setting authenticated user:', session.user);
+      console.log('User is authenticated, setting user state');
       setUser({
-        githubId: session.githubId,
-        username: session.user.name || '',
-        name: session.user.name || '',
-        email: session.user.email || '',
-        avatar_url: session.user.image || '',
+        githubId: session.githubId || session.user.id,
+        username: session.githubUsername || session.user.username || session.user.name,
+        name: session.user.name,
+        email: session.user.email,
+        avatar_url: session.user.image,
         accessToken: session.accessToken
       });
       setLoading(false);
       setInitialCheckComplete(true);
     } else {
-      console.log('No authenticated user found');
+      console.log('User is not authenticated');
       setUser(null);
       setLoading(false);
       setInitialCheckComplete(true);

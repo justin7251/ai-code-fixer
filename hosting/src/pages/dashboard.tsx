@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
 import { useSession } from 'next-auth/react';
+import { ApiClient } from '../utils/apiClient';
 
 
 export default function Dashboard() {
@@ -105,22 +106,17 @@ export default function Dashboard() {
       if (!session?.accessToken) {
         throw new Error('Authentication token not found. Please log in again.');
       }
+
+      // Create API client instance
+      const client = new ApiClient({ session });
       
-      const response = await fetch('https://api.github.com/user/repos', {
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
+      // Get repositories using the API client
+      const data = await client.getRepositories(session.accessToken);
       
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || `Error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Fetched repositories:', data.length);
-      setRepositories(data);
+      // Ensure data is an array
+      const repositoriesArray = Array.isArray(data) ? data : [];
+      console.log('Fetched repositories:', repositoriesArray.length);
+      setRepositories(repositoriesArray);
       
       // Check if there's a previously selected repo in localStorage
       const savedRepo = localStorage.getItem('selectedRepo');
@@ -230,19 +226,21 @@ export default function Dashboard() {
   }, [status, session?.accessToken]);
   
   // Filter and search repositories
-  const filteredRepositories = repositories.filter(repo => {
-    // Apply text search
-    const matchesSearch = repo.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         repo.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Apply status filter
-    const matchesFilter = activeFilter === 'all' || 
-                         (activeFilter === 'active' && repo.status === 'active') ||
-                         (activeFilter === 'completed' && repo.status === 'completed') ||
-                         (activeFilter === 'not_started' && repo.status === 'not_started');
-    
-    return matchesSearch && matchesFilter;
-  });
+  const filteredRepositories = Array.isArray(repositories) 
+    ? repositories.filter(repo => {
+        // Apply text search
+        const matchesSearch = repo.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             repo.description?.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        // Apply status filter
+        const matchesFilter = activeFilter === 'all' || 
+                             (activeFilter === 'active' && repo.status === 'active') ||
+                             (activeFilter === 'completed' && repo.status === 'completed') ||
+                             (activeFilter === 'not_started' && repo.status === 'not_started');
+        
+        return matchesSearch && matchesFilter;
+      })
+    : [];
   
   // Filter available repositories by search term
   const filteredAvailableRepos = availableRepos.filter(repo =>
@@ -260,8 +258,12 @@ export default function Dashboard() {
   };
   
   // Get counts for dashboard stats
-  const totalIssues = repositories.reduce((sum, repo) => sum + (repo.issues_count || 0), 0);
-  const fixedIssues = repositories.reduce((sum, repo) => sum + (repo.fixed_issues || 0), 0);
+  const totalIssues = Array.isArray(repositories) 
+    ? repositories.reduce((sum, repo) => sum + (repo.issues_count || 0), 0)
+    : 0;
+  const fixedIssues = Array.isArray(repositories) 
+    ? repositories.reduce((sum, repo) => sum + (repo.fixed_issues || 0), 0)
+    : 0;
   const fixRate = totalIssues > 0 ? Math.round((fixedIssues / totalIssues) * 100) : 0;
   
   const handleSelectRepository = (repository: any) => {
