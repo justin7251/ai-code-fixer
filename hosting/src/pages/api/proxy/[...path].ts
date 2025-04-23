@@ -13,18 +13,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // Get the token using getToken with explicit secret
-    console.log('[DEBUG] Attempting to verify token');
     const token = await getToken({ 
       req,
       secret: process.env.NEXTAUTH_SECRET,
     });
     
+    console.log('Token from JWT:', token ? 'Exists' : 'Not found');
     if (token) {
-      console.log('[DEBUG] Token verified successfully');
       console.log('Token keys:', Object.keys(token));
       console.log('Access token exists:', !!token.accessToken);
-    } else {
-      console.log('[DEBUG] Token verification failed');
     }
     
     if (!token) {
@@ -39,7 +36,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Create a proper JWT token for backend authentication
-    console.log('[DEBUG] Creating backend JWT token');
     const backendToken = jwt.sign(
       {
         userId: token.sub,
@@ -68,7 +64,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ...cleanHeaders,
     };
 
-    console.log('[DEBUG] Proxying to URL:', url);
+    console.log('Proxying to URL:', url);
+    console.log('Using JWT token for authorization');
 
     // Forward the request to the backend
     const response = await fetch(url, {
@@ -77,26 +74,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
     });
 
-    console.log('[DEBUG] Backend response status:', response.status);
+    console.log('Backend response status:', response.status);
 
     // Get the response data
-    const rawData = await response.text();
-    let data;
-    
-    try {
-      // Try to parse the response as JSON
-      data = JSON.parse(rawData);
-      console.log('[DEBUG] Received JSON response with keys:', Object.keys(data));
-    } catch (err) {
-      // If parsing fails, return the raw text
-      console.log('[DEBUG] Received non-JSON response:', rawData);
-      return res.status(response.status).send(rawData);
-    }
+    const data = await response.json();
+    console.log('Backend response data:', data);
 
     // Forward the status and data
     return res.status(response.status).json(data);
   } catch (error) {
-    console.error('[DEBUG] Proxy error:', error);
+    console.error('Proxy error:', error);
     return res.status(500).json({ 
       message: 'Internal server error', 
       error: String(error)

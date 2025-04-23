@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { ApiClient } from '../../utils/apiClient';
 
 export default function ProjectPage() {
   const { data: session, status } = useSession();
@@ -14,32 +15,35 @@ export default function ProjectPage() {
   
   useEffect(() => {
     const fetchRepository = async () => {
-      if (status === 'authenticated' && session && id) {
-        try {
-          setLoading(true);
-          const response = await fetch(`/api/github/repositories/${id}`, {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setRepository(data.repository);
-          } else {
-            setError('Failed to fetch repository');
-          }
-        } catch (error) {
-          console.error('Error fetching repository:', error);
-          setError('Failed to fetch repository');
-        } finally {
-          setLoading(false);
+      if (!repository) {
+        setLoading(true);
+      }
+
+      try {
+        if (!session?.accessToken || !id || typeof id !== 'string') {
+          return;
         }
+
+        if (repository && repository.id === Number(id)) {
+          return;
+        }
+
+        const client = new ApiClient({ session });
+        const data = await client.getRepository(session.accessToken, id as string);
+
+        setRepository(data.repository);
+      } catch (error) {
+        console.error('Error fetching repository:', error);
+        setError('Failed to fetch repository');
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchRepository();
-  }, [status, session, id]);
+    if (session?.accessToken && id && typeof id === 'string') {
+      fetchRepository();
+    }
+  }, [id, session?.accessToken]);
 
   function handleAnalysis() {
     router.push(`/project/${id}/analysis`);

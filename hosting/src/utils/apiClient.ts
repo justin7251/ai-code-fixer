@@ -63,4 +63,22 @@ export class ApiClient {
       return [];
     }
   }
+
+  async getRepository(token: string, repoId: string) {
+    const response = await fetch(`/api/proxy/api/repositories/${repoId}`, {
+      method: 'GET',
+      headers: {
+        ...(await this.getHeaders()),
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Failed to get repository');
+    } 
+
+    return response.json();
+  }
+
 } 
