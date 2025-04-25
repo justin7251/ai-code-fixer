@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from 'next-auth/react';
-import { withApiSecurity } from '@/middleware/apiSecurity';
-import { db } from '@/lib/firebase-admin';
+import { withApiSecurity } from '../../../middleware/withApiSecurity';
+import { db } from '../../../lib/firebase-admin';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { id } = req.query;
