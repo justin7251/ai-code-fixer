@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthProvider';
 import { useSession } from 'next-auth/react';
 import { ApiClient } from '../../../utils/apiClient';
+import toast from 'react-hot-toast';
 
 export default function ProjectAnalysisPage() {
   const { data: session, status } = useSession();
@@ -21,15 +22,12 @@ export default function ProjectAnalysisPage() {
     { rule: 'AvoidDuplicateLiterals', count: 12, severity: 'WARNING', description: 'Avoid duplicate string literals' },
   ]);
 
-          
-  const isDev = process.env.NODE_ENV === 'development';
-  const baseUrl = isDev
-    ? 'http://localhost:5001/ai-code-fixer/us-central1/analysis'
-    : 'https://us-central1-ai-code-fixer.cloudfunctions.net/analysis';
+  // Using ApiClient for all requests
+  const apiClient = new ApiClient({ session });
 
   useEffect(() => {
     const fetchRepository = async () => {
-      if (!session?.accessToken || !id || typeof id !== 'string') {
+      if (!session?.accessToken || !id) {
         return;
       }
 
@@ -42,8 +40,7 @@ export default function ProjectAnalysisPage() {
         setLoading(true);
 
         // Update to use ApiClient
-        const client = new ApiClient({ session });
-        const data = await client.getRepository(session.accessToken, id as string);
+        const data = await apiClient.getRepository(session.accessToken, id);
         
         if (data && data.repository) {
           setRepository(data.repository);
@@ -67,35 +64,53 @@ export default function ProjectAnalysisPage() {
 
   useEffect(() => {
     // Only fetch analysis once we have repository data and haven't already loaded it
-    if (!repository || analysisComplete || !session?.accessToken) {
+    if (!repository || analysisComplete || !session?.accessToken || !id) {
       return;
     }
 
     const fetchAnalysis = async () => {
       try {
         setAnalysisLoading(true);
-        const response = await fetch(`${baseUrl}/refresh/${id}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.accessToken}`
-          },
-          body: JSON.stringify({ 
-            branch: 'main', 
-            repoName: repository.name, 
-            repoFullName: repository.full_name || repository.fullName
-          }),
-          credentials: 'include'
-        });
         
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to refresh analysis');
+        // Ensure repository has required properties
+        if (!repository.name) {
+          console.error('Repository name is missing', repository);
+          setError('Repository missing required data');
+          setAnalysisLoading(false);
+          return;
         }
         
-        const data = await response.json();
-        setPmdAnalysis(data.analysis?.issues || []);
-        setAnalysisComplete(true);
+        const repoName = repository.name;
+        // Ensure repoFullName is always a string by providing a default empty string
+        const repoFullName = (repository.full_name || repository.fullName || '').toString();
+        
+        if (!repoFullName) {
+          console.warn('Repository full name is missing, this may cause analysis to fail', repository);
+        }
+        
+        console.log('Fetching analysis with data:', {
+          repoId: id,
+          repoName,
+          repoFullName,
+          branch: 'main'
+        });
+        
+        // Use ApiClient instead of direct fetch
+        const response = await apiClient.getRepositoryAnalysis(session.accessToken, id, {
+          branch: 'main', 
+          repoName: repoName, 
+          repoFullName: repoFullName
+        });
+        
+        if (response?.success === false && response?.message === 'Repository not found') {
+          setError(`Repository not found (ID: ${id}). Please check if this repository exists and you have access to it.`);
+        } else if (response?.analysis?.issues) {
+          setPmdAnalysis(response.analysis.issues);
+          setAnalysisComplete(true);
+        } else {
+          console.warn('Unexpected analysis response format:', response);
+          setError('Unexpected response format from analysis service');
+        }
       } catch (error) {
         console.error('Error fetching analysis:', error);
         setError('Failed to fetch analysis');
@@ -105,66 +120,100 @@ export default function ProjectAnalysisPage() {
     };
     
     fetchAnalysis();
-  }, [repository, session?.accessToken]);
+  }, [repository, session?.accessToken, id, analysisComplete]);
 
   // Update the Refresh Analysis button to call the analysis with a manual flag
   const handleRefreshAnalysis = async () => {
     if (!session?.accessToken || !id) {
+      toast.error('You must be logged in to refresh analysis');
+      return;
+    }
+
+    if (!repository || !repository.name) {
+      setError('Cannot refresh analysis: Repository data is missing');
       return;
     }
 
     try {
       setAnalysisLoading(true);
-      const response = await fetch(`${baseUrl}/refresh/${id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.accessToken}`
-        },
-        body: JSON.stringify({ 
-          branch: 'main',
-          repoName: repository.name,
-          repoFullName: repository.full_name || repository.fullName,
-          forceRefresh: true
-        }),
-        credentials: 'include'
+      setError(''); // Clear any previous errors
+      
+      const repoName = repository.name;
+      const repoFullName = (repository.full_name || repository.fullName || '').toString();
+      
+      console.log('Refreshing analysis with data:', {
+        repoId: id,
+        repoName,
+        repoFullName,
+        branch: 'main',
+        forceRefresh: true
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to refresh analysis');
-      }
+      // Use the refreshRepositoryAnalysis method from apiClient
+      const response = await apiClient.refreshRepositoryAnalysis(session.accessToken, id, {
+        branch: 'main',
+        repoName: repoName,
+        repoFullName: repoFullName,
+        forceRefresh: true
+      });
       
-      const data = await response.json();
-      setPmdAnalysis(data.analysis?.issues || []);
+      console.log('Refresh response:', response);
+      
+      if (response?.success === false) {
+        // Handle known error cases
+        if (response?.message === 'Repository not found') {
+          setError(`Repository not found (ID: ${id}). Please check if this repository exists and you have access to it.`);
+          toast.error('Repository not found');
+        } else if (response?.message === 'Method not allowed') {
+          setError('Method not allowed by the API. Please check backend configuration.');
+          toast.error('API configuration error');
+        } else if (response?.message === 'Token verification failed: Token is not in valid JWT format') {
+          setError('Authentication error. Please try logging out and logging back in.');
+          toast.error('Authentication error');
+        } else {
+          setError(response?.message || 'Failed to refresh analysis');
+          toast.error('Failed to refresh analysis');
+        }
+      } else if (response?.analysis?.issues) {
+        setPmdAnalysis(response.analysis.issues);
+        toast.success('Analysis refreshed successfully');
+      } else {
+        console.warn('Unexpected analysis response format:', response);
+        setError('Unexpected response format from analysis service');
+        toast.error('Unexpected response format');
+      }
     } catch (error) {
       console.error('Error refreshing analysis:', error);
-      setError('Failed to refresh analysis');
+      setError('Failed to refresh analysis: ' + (error instanceof Error ? error.message : String(error)));
+      toast.error('Failed to refresh analysis');
     } finally {
       setAnalysisLoading(false);
     }
   };
 
   const handleAnalysis = async () => {
-    if (status === 'authenticated' && session && id) {
-      try {
-        const response = await fetch(`/api/github/repositories/${id}/analyze`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (response.ok) {
-          router.push(`/project/${id}/issue-fixes`);
-        } else {
-          setError('Failed to start analysis');
-        }
-      } catch (error) {
-        console.error('Error starting analysis:', error);
+    if (!session?.accessToken || !id) {
+      toast.error('You must be logged in to analyze a repository');
+      return;
+    }
+
+    try {
+      setAnalysisLoading(true);
+      const response = await apiClient.analyzeRepository(session.accessToken, id);
+      
+      if (response && response.success) {
+        toast.success('Analysis started successfully');
+        router.push(`/project/${id}/issue-fixes`);
+      } else {
         setError('Failed to start analysis');
+        toast.error('Failed to start analysis');
       }
+    } catch (error) {
+      console.error('Error starting analysis:', error);
+      setError('Failed to start analysis');
+      toast.error('Failed to start analysis');
+    } finally {
+      setAnalysisLoading(false);
     }
   };
 

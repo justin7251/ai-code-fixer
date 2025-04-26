@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { ApiClient } from '../../../utils/apiClient';
 
 interface IssueType {
   id: string;
@@ -19,13 +20,16 @@ export default function IssueFixesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const { id } = router.query;
-  const [repository, setRepository] = useState<any>(null);
+  const [repository, setRepository] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState<IssueType | null>(null);
   const [showFixModal, setShowFixModal] = useState(false);
   
+  // Using ApiClient for all requests
+  const apiClient = new ApiClient({ session });
+
   // Sample issues data - would come from API in production
   const [issues, setIssues] = useState<IssueType[]>([
     {
@@ -85,14 +89,10 @@ export default function IssueFixesPage() {
       if (status === 'authenticated' && session && id) {
         try {
           setLoading(true);
-          const response = await fetch(`/api/github/repositories/${id}`, {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`
-            }
-          });
+          // Use ApiClient instead of direct fetch
+          const data = await apiClient.getRepository(session.accessToken, id);
           
-          if (response.ok) {
-            const data = await response.json();
+          if (data && data.repository) {
             setRepository(data.repository);
           } else {
             setError('Failed to fetch repository');
