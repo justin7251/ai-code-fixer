@@ -6,17 +6,10 @@ import jwt from 'jsonwebtoken';
 // Server-side API routes cannot use the ApiClient class which is designed for client-side usage.
 // Instead, they make direct fetch calls to the backend service with proper authentication.
 
-// Use the same base URL from the original code
-const getAnalysisBaseUrl = () => {
-  // Always use a consistent URL format regardless of environment
-  const baseUrl = 'http://localhost:5001/api/analysis';
-  
-  console.log('Using analysis base URL:', baseUrl);
-  return baseUrl;
-};
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST' && req.method !== 'GET') {
+  if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
@@ -38,8 +31,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ message: 'Repository ID is required' });
     }
 
-    const baseUrl = getAnalysisBaseUrl();
-    
     // Create a proper JWT token for backend authentication
     const backendToken = jwt.sign(
       {
@@ -52,23 +43,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       process.env.NEXTAUTH_SECRET as string,
       { expiresIn: '1h' }
     );
-    
-    console.log('Using proper JWT token for backend authorization');
-    
-    // Forward the request to the analysis service
-    const response = await fetch(`${baseUrl}/${id}`, {
-      method: req.method,
+
+    // Log request for debugging
+    console.log('Refresh analysis request for repository ID:', id);
+    console.log('Request body:', req.body);
+
+    // Forward the request to the backend
+    const url = `${BACKEND_URL}/api/repositories/${id}/refresh-analysis`;
+    console.log('Forwarding to backend URL:', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${backendToken}`
       },
-      body: req.method === 'POST' ? JSON.stringify(req.body) : undefined,
+      body: JSON.stringify(req.body)
     });
 
     // Check if response is JSON
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
-      console.error(`Analysis endpoint returned non-JSON response (${contentType})`);
+      console.error(`Backend returned non-JSON response (${contentType})`);
       const textResponse = await response.text();
       console.error('Response text (first 200 chars):', textResponse.substring(0, 200));
       return res.status(500).json({ 
@@ -91,8 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // Log the response data for debugging
-    console.log(`Analysis response for ID ${id}:`, {
+    console.log('Backend response:', {
       status: response.status,
       data: data
     });
@@ -100,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Forward the status and data
     return res.status(response.status).json(data);
   } catch (error) {
-    console.error('Error with analysis:', error);
+    console.error('Error with refresh analysis:', error);
     return res.status(500).json({ 
       message: 'Internal server error', 
       error: String(error)

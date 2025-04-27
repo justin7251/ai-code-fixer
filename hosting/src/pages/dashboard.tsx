@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
-import { useSession } from 'next-auth/react';
+import { useSession, signIn } from 'next-auth/react';
 import { ApiClient } from '../utils/apiClient';
 
 
@@ -27,6 +27,9 @@ export default function Dashboard() {
   const [selectedReposToAdd, setSelectedReposToAdd] = useState<any[]>([]);
   const [isAddingRepos, setIsAddingRepos] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Using ApiClient for all requests
+  const apiClient = new ApiClient({ session });
 
   // Function to extract token from URL fragment
   useEffect(() => {
@@ -98,35 +101,31 @@ export default function Dashboard() {
     };
   }, [dropdownRef]);
 
+  useEffect(() => {
+    if (status === 'authenticated' && session?.accessToken) {
+      fetchRepositories();
+    } else if (status === 'unauthenticated') {
+      setIsLoading(false);
+    }
+  }, [status, session]);
+
   const fetchRepositories = async () => {
     setIsLoading(true);
     setError('');
-    
-    try {
-      if (!session?.accessToken) {
-        throw new Error('Authentication token not found. Please log in again.');
-      }
 
-      // Create API client instance
-      const client = new ApiClient({ session });
+    try {
+      // Use ApiClient to get repositories
+      const repos = await apiClient.getRepositories(session?.accessToken);
       
-      // Get repositories using the API client
-      const data = await client.getRepositories(session.accessToken);
-      
-      // Ensure data is an array
-      const repositoriesArray = Array.isArray(data) ? data : [];
-      console.log('Fetched repositories:', repositoriesArray.length);
-      setRepositories(repositoriesArray);
-      
-      // Check if there's a previously selected repo in localStorage
-      const savedRepo = localStorage.getItem('selectedRepo');
-      if (savedRepo) {
-        const parsedRepo = JSON.parse(savedRepo);
-        setSelectedRepo(parsedRepo);
+      if (Array.isArray(repos)) {
+        setRepositories(repos);
+      } else {
+        console.error('Expected array but got:', repos);
+        setError('Failed to load repositories');
       }
-    } catch (error) {
-      console.error('Failed to fetch repositories:', error);
-      setError(`Failed to load repositories: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (err) {
+      console.error('Error fetching repositories:', err);
+      setError('Failed to load repositories');
     } finally {
       setIsLoading(false);
     }
@@ -218,13 +217,6 @@ export default function Dashboard() {
     }
   };
   
-  // Fetch repositories when session is available
-  useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchRepositories();
-    }
-  }, [status, session?.accessToken]);
-  
   // Filter and search repositories
   const filteredRepositories = Array.isArray(repositories) 
     ? repositories.filter(repo => {
@@ -284,13 +276,6 @@ export default function Dashboard() {
     fetchRepositories();
   };
   
-  // Check authentication status
-  useEffect(() => {
-    if (status === 'unauthenticated' && !loading) {
-      router.push('/');
-    }
-  }, [status, loading, router]);
-
   // If loading or not authenticated, show loading state
   if (loading || status === 'loading' || !session) {
     return (

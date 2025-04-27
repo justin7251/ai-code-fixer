@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from 'next-auth/react';
 import { Octokit } from '@octokit/rest';
-import { withApiSecurity } from '@/middleware/apiSecurity';
+import { withApiSecurity } from '../../../middleware/withApiSecurity';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

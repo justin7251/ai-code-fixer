@@ -31,12 +31,13 @@ export class ApiClient {
       body: JSON.stringify({ userId }),
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to get token');
-    }
-
-    return response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({}));
+    
+    console.log('Token data received:', data ? 'Data exists' : 'No data');
+    
+    // Return the response data regardless of status code
+    return data;
   }
 
   async getRepositories(token: string | undefined) {
@@ -52,18 +53,18 @@ export class ApiClient {
       },
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to get repositories');
-    }
-
-    const data = await response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({}));
+    
     console.log('Repository data received:', data);
     
     // Check the shape of data and ensure we return an array
     if (data.repositories && Array.isArray(data.repositories)) {
       return data.repositories;
     } else if (Array.isArray(data)) {
+      return data;
+    } else if (data.success === false) {
+      // If there's an error, return the data object
       return data;
     } else {
       console.warn('Unexpected data format received from API:', data);
@@ -92,12 +93,13 @@ export class ApiClient {
       },
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to get repository');
-    } 
-
-    return response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({}));
+    
+    console.log('Repository detail data received:', data);
+    
+    // Return the response data regardless of status code
+    return data;
   }
 
   async getRepositoryAnalysis(token: string | undefined, repoId: string | string[] | undefined, options = {}) {
@@ -112,6 +114,8 @@ export class ApiClient {
     // Handle string arrays by using the first element
     const id = Array.isArray(repoId) ? repoId[0] : repoId;
     
+    console.log('Getting repository analysis with options:', options);
+    
     const response = await fetch(`/api/proxy/api/analysis/${id}`, {
       method: 'POST',
       headers: {
@@ -121,12 +125,16 @@ export class ApiClient {
       body: JSON.stringify(options)
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to get repository analysis');
-    }
-
-    return response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({ 
+      success: false, 
+      message: 'Failed to parse response as JSON'
+    }));
+    
+    console.log('Repository analysis data received:', data);
+    
+    // Return the response data regardless of status code
+    return data;
   }
 
   async refreshRepositoryAnalysis(token: string | undefined, repoId: string | string[] | undefined, options = {}) {
@@ -141,6 +149,9 @@ export class ApiClient {
     // Handle string arrays by using the first element
     const id = Array.isArray(repoId) ? repoId[0] : repoId;
     
+    console.log('Refreshing repository analysis with options:', options);
+    
+    // Use the correct endpoint for analysis refresh
     const response = await fetch(`/api/proxy/api/analysis/${id}/refresh`, {
       method: 'POST',
       headers: {
@@ -150,12 +161,16 @@ export class ApiClient {
       body: JSON.stringify(options)
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to refresh repository analysis');
-    }
-
-    return response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({ 
+      success: false, 
+      message: 'Failed to parse response as JSON'
+    }));
+    
+    console.log('Repository analysis refresh data received:', data);
+    
+    // Return the response data regardless of status code
+    return data;
   }
 
   async analyzeRepository(token: string | undefined, repoId: string | string[] | undefined) {
@@ -170,6 +185,8 @@ export class ApiClient {
     // Handle string arrays by using the first element
     const id = Array.isArray(repoId) ? repoId[0] : repoId;
     
+    console.log('Analyzing repository:', id);
+    
     const response = await fetch(`/api/github/repositories/${id}/analyze`, {
       method: 'POST',
       headers: {
@@ -178,11 +195,15 @@ export class ApiClient {
       }
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Failed to analyze repository');
-    }
-
-    return response.json();
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({ 
+      success: false, 
+      message: 'Failed to parse response as JSON'
+    }));
+    
+    console.log('Repository analyze data received:', data);
+    
+    // Return the response data regardless of status code
+    return data;
   }
 } 
