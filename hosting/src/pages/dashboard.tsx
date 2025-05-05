@@ -112,7 +112,7 @@ export default function Dashboard() {
   const fetchRepositories = async () => {
     setIsLoading(true);
     setError('');
-
+    
     try {
       // Use ApiClient to get repositories
       const repos = await apiClient.getRepositories(session?.accessToken);
@@ -169,39 +169,11 @@ export default function Dashboard() {
     setIsAddingRepos(true);
     
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
-        throw new Error('Authentication token not found. Please log in again.');
-      }
-      
-      const response = await fetch(`${baseUrl}/github/add-repos`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          repositories: selectedReposToAdd
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
-      }
-      
-      // Update repositories from the response
-      if (data.repositories) {
-        setRepositories(data.repositories);
+      const repos = await apiClient.addRepo(session?.accessToken, selectedReposToAdd[0]);
+            
+      if (Array.isArray(repos)) {
+        setRepositories(repos);
       } else {
-        // Fetch repositories if not returned in response
         await fetchRepositories();
       }
       
@@ -275,7 +247,7 @@ export default function Dashboard() {
   const handleRefresh = () => {
     fetchRepositories();
   };
-  
+
   // If loading or not authenticated, show loading state
   if (loading || status === 'loading' || !session) {
     return (
