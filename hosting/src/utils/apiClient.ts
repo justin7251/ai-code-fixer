@@ -4,12 +4,21 @@ interface ApiClientOptions {
   session: Session | null;
 }
 
+interface GitHubRepo {
+  name: string;
+  full_name: string;
+  html_url: string;
+  description?: string;
+  private: boolean;
+}
+
 export class ApiClient {
   private session: Session | null;
 
   constructor({ session }: ApiClientOptions) {
     this.session = session;
   }
+
 
   private async getHeaders() {
     const headers: Record<string, string> = {
@@ -202,6 +211,38 @@ export class ApiClient {
     }));
     
     console.log('Repository analyze data received:', data);
+    
+    // Return the response data regardless of status code
+    return data;
+  }
+
+
+
+  async addRepo(token: string | undefined, selectedRepo: GitHubRepo | undefined) {
+    if (!token) {
+      throw new Error('Access token is required');
+    }
+    console.log(selectedRepo);
+    
+    const response = await fetch(`/api/proxy/api/repositories/`, {
+      method: 'POST',
+      headers: {
+        ...(await this.getHeaders()),
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: selectedRepo.name,
+        fullName: selectedRepo.full_name,
+        url: selectedRepo.html_url,
+        description: selectedRepo.description,
+        private: selectedRepo.private
+      })
+    });
+
+    // Get the response data even if status is not OK
+    const data = await response.json().catch(() => ({}));
+    
+    console.log('Repository detail data received:', data);
     
     // Return the response data regardless of status code
     return data;
