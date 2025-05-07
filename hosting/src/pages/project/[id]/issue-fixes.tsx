@@ -29,7 +29,7 @@ export default function IssueFixesPage() {
   
   // Using ApiClient for all requests
   const apiClient = new ApiClient({ session });
-
+  
   // Sample issues data - would come from API in production
   const [issues, setIssues] = useState<IssueType[]>([
     {
