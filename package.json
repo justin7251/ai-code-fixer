@@ -1,6 +1,8 @@
 {
   "dependencies": {
+    "@octokit/rest": "^21.1.1",
     "@types/express-rate-limit": "^5.1.3",
-    "express-rate-limit": "^7.5.0"
+    "express-rate-limit": "^7.5.0",
+    "pmd-bin": "^2.12.0"
   }
 }
