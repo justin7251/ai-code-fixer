@@ -222,14 +222,7 @@ export class ApiClient {
     if (!token) {
       throw new Error('Access token is required');
     }
-    console.log({
-      name: selectedRepo.name,
-      fullName: selectedRepo.full_name,
-      url: selectedRepo.html_url,
-      description: selectedRepo.description,
-      private: selectedRepo.private,
-    });
-    
+
     const response = await fetch(`/api/proxy/api/repositories/`, {
       method: 'POST',
       headers: {
@@ -241,7 +234,8 @@ export class ApiClient {
         fullName: selectedRepo.full_name,
         url: selectedRepo.html_url,
         description: selectedRepo.description,
-        private: selectedRepo.private
+        private: selectedRepo.private,
+        defaultBranch: selectedRepo.defaultBranch
       })
     });
 
