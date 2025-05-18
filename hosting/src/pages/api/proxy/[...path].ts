@@ -53,19 +53,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const url = `${BACKEND_URL}/${path.join('/')}`;
 
     // Create clean headers without any existing authorization
-    const cleanHeaders = { ...req.headers } as Record<string, string>;
-    delete cleanHeaders.authorization;
-    delete cleanHeaders.Authorization;
+    // const cleanHeaders = { ...req.headers } as Record<string, string>;
+    // delete cleanHeaders.authorization;
+    // delete cleanHeaders.Authorization;
 
     // Use the JWT token for backend authentication
     const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${backendToken}`,
-      ...cleanHeaders,
+      // ...cleanHeaders,
     };
 
     console.log('Proxying to URL:', url);
-    console.log('Using JWT token for authorization');
+    console.log('header', requestHeaders);
+    console.log('DEBUG: req', req.method !== 'GET' ? JSON.stringify(req.body) : undefined)
 
     // Forward the request to the backend
     const response = await fetch(url, {

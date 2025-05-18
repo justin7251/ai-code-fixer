@@ -167,17 +167,27 @@ export default function Dashboard() {
     if (selectedReposToAdd.length === 0) return;
     
     setIsAddingRepos(true);
-    
+
     try {
-      const repos = await apiClient.addRepo(session?.accessToken, selectedReposToAdd[0]);
-            
+      const data = {
+        name: selectedReposToAdd[0].name,
+        fullName: selectedReposToAdd[0].full_name,
+        url: selectedReposToAdd[0].html_url,
+        description: selectedReposToAdd[0].description,
+        private: selectedReposToAdd[0].private,
+        defaultBranch: selectedReposToAdd[0].defaultBranch,
+        repoId: selectedReposToAdd[0].id
+      };
+
+      const repos = await apiClient.addRepo(session?.accessToken, data);
+
       if (Array.isArray(repos)) {
         setRepositories(repos);
       } else {
         await fetchRepositories();
       }
       
-      // Close the dropdown and reset selection
+      //Close the dropdown and reset selection
       setShowRepoSelector(false);
       setSelectedReposToAdd([]);
       
@@ -185,7 +195,7 @@ export default function Dashboard() {
       console.error('Failed to add repositories:', error);
       setError(`Failed to add repositories: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setIsAddingRepos(false);
+      // setIsAddingRepos(false);
     }
   };
   
