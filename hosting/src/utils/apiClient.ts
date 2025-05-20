@@ -10,6 +10,8 @@ interface GitHubRepo {
   html_url: string;
   description?: string;
   private: boolean;
+  defaultBranch: string;
+  repoId: string;
 }
 
 export class ApiClient {
@@ -218,7 +220,7 @@ export class ApiClient {
 
 
 
-  async addRepo(token: string | undefined, selectedRepo: GitHubRepo | undefined) {
+  async addRepo(token: string | undefined, selectedRepo: any | undefined) {
     if (!token) {
       throw new Error('Access token is required');
     }
@@ -229,14 +231,7 @@ export class ApiClient {
         ...(await this.getHeaders()),
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        name: selectedRepo.name,
-        fullName: selectedRepo.full_name,
-        url: selectedRepo.html_url,
-        description: selectedRepo.description,
-        private: selectedRepo.private,
-        defaultBranch: selectedRepo.defaultBranch
-      })
+      body: JSON.stringify(selectedRepo)
     });
 
     // Get the response data even if status is not OK
