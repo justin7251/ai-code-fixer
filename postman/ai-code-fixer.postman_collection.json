@@ -1,0 +1,239 @@
+{
+  "info": {
+    "_postman_id": "ai-code-fixer-collection",
+    "name": "AI Code Fixer API",
+    "description": "Collection of API endpoints for the AI Code Fixer application",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"code\": \"{{github_auth_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repositories",
+      "item": [
+        {
+          "name": "Get All Repositories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/repositories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories"]
+            }
+          }
+        },
+        {
+          "name": "Get Repository by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/repositories/{{repository_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories", "{{repository_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Repository Analysis",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"force\": true,\n    \"repoName\": \"{{repo_name}}\",\n    \"repoFullName\": \"{{repo_full_name}}\",\n    \"branch\": \"main\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/repositories/{{repository_id}}/refresh-analysis",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories", "{{repository_id}}", "refresh-analysis"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "Get Analysis by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/proxy/api/analysis/{{analysis_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "proxy", "api", "analysis", "{{analysis_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Analysis",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"force\": true,\n    \"repoName\": \"{{repo_name}}\",\n    \"repoFullName\": \"{{repo_full_name}}\",\n    \"branch\": \"main\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/proxy/api/analysis/{{analysis_id}}/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "proxy", "api", "analysis", "{{analysis_id}}", "refresh"]
+            },
+            "event": [
+              {
+                "listen": "prerequest",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "if (!pm.environment.get('access_token')) {",
+                    "    throw new Error('Access token is required. Please login first.');",
+                    "}",
+                    "if (!pm.environment.get('analysis_id')) {",
+                    "    throw new Error('Analysis ID is required.');",
+                    "}",
+                    "if (!pm.environment.get('repo_name')) {",
+                    "    throw new Error('Repository name is required.');",
+                    "}",
+                    "if (!pm.environment.get('repo_full_name')) {",
+                    "    throw new Error('Repository full name is required.');",
+                    "}"
+                  ]
+                }
+              },
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "pm.test('Status code is 200', function () {",
+                    "    pm.response.to.have.status(200);",
+                    "});",
+                    "",
+                    "pm.test('Response has success property', function () {",
+                    "    var jsonData = pm.response.json();",
+                    "    pm.expect(jsonData).to.have.property('success');",
+                    "});"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "repository_id",
+      "value": "your-repository-id-here",
+      "type": "string"
+    },
+    {
+      "key": "analysis_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "repo_name",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "repo_full_name",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "github_auth_code",
+      "value": "",
+      "type": "string"
+    }
+  ]
+} 

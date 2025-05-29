@@ -2,29 +2,48 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { ApiClient } from '../../utils/apiClient';
 
 export default function ProjectPage() {
+  const { data: session, status } = useSession();
   const router = useRouter();
   const { id } = router.query;
   const [repository, setRepository] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   
   useEffect(() => {
-    // Load selected repository from localStorage
-    try {
-      const savedRepo = localStorage.getItem('selectedRepo');
-      if (savedRepo) {
-        const repoData = JSON.parse(savedRepo);
-        if (repoData.id.toString() === id) {
-          setRepository(repoData);
-        }
+    const fetchRepository = async () => {
+      if (!repository) {
+        setLoading(true);
       }
-    } catch (e) {
-      console.error('Error loading repository data:', e);
-    } finally {
-      setIsLoading(false);
+
+      try {
+        if (!session?.accessToken || !id || typeof id !== 'string') {
+          return;
+        }
+
+        if (repository && repository.id === Number(id)) {
+          return;
+        }
+
+        const client = new ApiClient({ session });
+        const data = await client.getRepository(session.accessToken, id as string);
+
+        setRepository(data.repository);
+      } catch (error) {
+        console.error('Error fetching repository:', error);
+        setError('Failed to fetch repository');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (session?.accessToken && id && typeof id === 'string') {
+      fetchRepository();
     }
-  }, [id]);
+  }, [id, session?.accessToken]);
 
   function handleAnalysis() {
     router.push(`/project/${id}/analysis`);
@@ -34,7 +53,7 @@ export default function ProjectPage() {
     router.push(`/project/${id}/issue-fixes`);
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center p-8 max-w-md">

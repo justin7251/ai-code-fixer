@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Repository } from '@/utils/github';
+import { ApiClient } from '@/utils/apiClient';
 
 interface AnalysisResult {
   file: string;
@@ -14,16 +15,14 @@ interface CodeAnalysisProps {
   repository: Repository;
 }
 
-const isDev = process.env.NODE_ENV === 'development';
-const BaseUrl = isDev
-  ? 'http://localhost:5001/ai-code-fixer/us-central1/analysis'
-  : 'https://us-central1-ai-code-fixer.cloudfunctions.net/analysis';
-
 export default function CodeAnalysis({ repository }: CodeAnalysisProps) {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Create API client instance
+  const apiClient = new ApiClient({ session });
 
   const analyzeCode = async () => {
     if (!session?.accessToken) {
@@ -35,25 +34,25 @@ export default function CodeAnalysis({ repository }: CodeAnalysisProps) {
     setError(null);
 
     try {
-      const response = await fetch(`${BaseUrl}/analysis/latest/${repository.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // Use ApiClient instead of direct fetch
+      const data = await apiClient.getRepositoryAnalysis(
+        session.accessToken, 
+        repository.id.toString(), 
+        {
           repo: repository.name,
-          accessToken: session.accessToken,
-        }),
-      });
+          repoFullName: repository.full_name,
+          branch: 'main'
+        }
+      );
 
-      if (!response.ok) {
-        throw new Error('Failed to analyze code');
+      if (data.success === false) {
+        throw new Error(data.message || 'Failed to analyze code');
       }
 
-      const data = await response.json();
-      setResults(data.results);
+      setResults(data.results || data.analysis?.issues || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Analysis error:', err);
     } finally {
       setLoading(false);
     }

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 
 export default function Navbar() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, login, logout } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -34,16 +34,6 @@ export default function Navbar() {
       router.events.off('routeChangeStart', handleRouteChange);
     };
   }, [router]);
-
-  const login = () => {
-    const isDev = process.env.NODE_ENV === 'development';
-    const authBaseUrl = isDev
-      ? 'http://localhost:5001/ai-code-fixer/us-central1/auth'
-      : 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-    
-    // Use the correct path
-    window.location.href = `${authBaseUrl}/github/login`;
-  };
 
   const handleNavigation = (path: string) => {
     setShowDropdown(false);

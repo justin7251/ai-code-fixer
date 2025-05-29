@@ -1,8 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from 'next-auth/react';
 import { Octokit } from '@octokit/rest';
+import { withApiSecurity } from '../../../middleware/withApiSecurity';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -20,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       auth: session.accessToken,
     });
 
-    // Get user's repositories
+    // Get user's repositories with pagination
     const { data: repos } = await octokit.repos.listForAuthenticatedUser({
       sort: 'updated',
       per_page: 100,
@@ -44,9 +45,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json(transformedRepos);
   } catch (error: any) {
     console.error('Error fetching repositories:', error);
+    
+    // Handle specific GitHub API errors
+    if (error.status === 401) {
+      return res.status(401).json({ 
+        error: 'GitHub authentication failed',
+        details: 'Your GitHub token has expired or is invalid'
+      });
+    }
+    
+    if (error.status === 403) {
+      return res.status(403).json({ 
+        error: 'GitHub API rate limit exceeded',
+        details: 'Please try again later'
+      });
+    }
+
     return res.status(500).json({ 
       error: 'Failed to fetch repositories',
       details: error.message 
     });
   }
-} 
+}
+
+export default withApiSecurity(handler); 

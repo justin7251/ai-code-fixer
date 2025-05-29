@@ -2,23 +2,20 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, login } = useAuth();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [showDemo, setShowDemo] = useState(false);
   
   // Redirect to dashboard if already logged in
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && user && status === 'authenticated') {
       router.push('/dashboard');
     }
-  }, [user, loading, router]);
-  
-  const login = () => {
-    const authBaseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-    window.location.href = `${authBaseUrl}/github/login`;
-  };
+  }, [user, loading, router, status]);
 
   return (
     <div className="min-h-screen bg-white">

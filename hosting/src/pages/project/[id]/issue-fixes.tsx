@@ -2,6 +2,8 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { ApiClient } from '../../../utils/apiClient';
 
 interface IssueType {
   id: string;
@@ -15,13 +17,18 @@ interface IssueType {
 }
 
 export default function IssueFixesPage() {
+  const { data: session, status } = useSession();
   const router = useRouter();
   const { id } = router.query;
-  const [repository, setRepository] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [repository, setRepository] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState<IssueType | null>(null);
   const [showFixModal, setShowFixModal] = useState(false);
+  
+  // Using ApiClient for all requests
+  const apiClient = new ApiClient({ session });
   
   // Sample issues data - would come from API in production
   const [issues, setIssues] = useState<IssueType[]>([
@@ -78,19 +85,29 @@ export default function IssueFixesPage() {
   ]);
 
   useEffect(() => {
-    // Load selected repository from localStorage
-    try {
-      const savedRepo = localStorage.getItem('selectedRepo');
-      if (savedRepo) {
-        const repoData = JSON.parse(savedRepo);
-        if (repoData.id.toString() === id) {
-          setRepository(repoData);
+    const fetchRepository = async () => {
+      if (status === 'authenticated' && session && id) {
+        try {
+          setLoading(true);
+          // Use ApiClient instead of direct fetch
+          const data = await apiClient.getRepository(session.accessToken, id);
+          
+          if (data && data.repository) {
+            setRepository(data.repository);
+          } else {
+            setError('Failed to fetch repository');
+          }
+        } catch (error) {
+          console.error('Error fetching repository:', error);
+          setError('Failed to fetch repository');
+        } finally {
+          setLoading(false);
         }
       }
-    } catch (e) {
-      console.error('Error loading repository data:', e);
-    }
-  }, [id]);
+    };
+
+    fetchRepository();
+  }, [status, session, id]);
 
   // Function to handle fixing an issue
   const handleFixIssue = (issue: IssueType) => {
@@ -127,11 +144,24 @@ export default function IssueFixesPage() {
   const fixedIssues = issues.filter(issue => issue.fixed).length;
   const totalIssues = issues.length;
 
-  if (!repository) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="mb-4">Loading project details...</p>
+          <Link href="/dashboard" className="text-blue-600 hover:underline">
+            Return to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="mb-4">Error loading project details: {error}</p>
           <Link href="/dashboard" className="text-blue-600 hover:underline">
             Return to Dashboard
           </Link>

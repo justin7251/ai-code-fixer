@@ -4,10 +4,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthProvider';
+import { useSession, signIn } from 'next-auth/react';
+import { ApiClient } from '../utils/apiClient';
 
 
 export default function Dashboard() {
   const { user, loading, checkAuth } = useAuth();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [repositories, setRepositories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,6 +27,9 @@ export default function Dashboard() {
   const [selectedReposToAdd, setSelectedReposToAdd] = useState<any[]>([]);
   const [isAddingRepos, setIsAddingRepos] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Using ApiClient for all requests
+  const apiClient = new ApiClient({ session });
 
   // Function to extract token from URL fragment
   useEffect(() => {
@@ -74,11 +80,10 @@ export default function Dashboard() {
 
   // Redirect to home if not authenticated
   useEffect(() => {
-    if (!loading && !user) {
-      console.log('[DASHBOARD] Not authenticated, redirecting to home');
+    if (status === 'unauthenticated' && !loading && !user) {
       router.push('/');
     }
-  }, [user, loading, router]);
+  }, [status, user, loading, router]);
 
   // Effect to handle clicks outside the dropdown
   useEffect(() => {
@@ -96,51 +101,31 @@ export default function Dashboard() {
     };
   }, [dropdownRef]);
 
+  useEffect(() => {
+    if (status === 'authenticated' && session?.accessToken) {
+      fetchRepositories();
+    } else if (status === 'unauthenticated') {
+      setIsLoading(false);
+    }
+  }, [status, session]);
+
   const fetchRepositories = async () => {
     setIsLoading(true);
     setError('');
     
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
+      // Use ApiClient to get repositories
+      const repos = await apiClient.getRepositories(session?.accessToken);
       
-      console.log('Fetching saved repositories from:', `${baseUrl}/github/user-repos`);
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
-        console.error('No authentication token found in localStorage');
-        throw new Error('Authentication token not found. Please log in again.');
+      if (Array.isArray(repos)) {
+        setRepositories(repos);
+      } else {
+        console.error('Expected array but got:', repos);
+        setError('Failed to load repositories');
       }
-      
-      const response = await fetch(`${baseUrl}/github/user-repos`, {
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        console.error('Repository fetch error:', data);
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
-      }
-      
-      console.log('Fetched repositories:', data.repositories?.length || 0);
-      setRepositories(data.repositories || []);
-      
-      // Check if there's a previously selected repo in localStorage
-      const savedRepo = localStorage.getItem('selectedRepo');
-      if (savedRepo) {
-        const parsedRepo = JSON.parse(savedRepo);
-        setSelectedRepo(parsedRepo);
-      }
-    } catch (error) {
-      console.error('Failed to fetch repositories:', error);
-      setError(`Failed to load repositories: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (err) {
+      console.error('Error fetching repositories:', err);
+      setError('Failed to load repositories');
     } finally {
       setIsLoading(false);
     }
@@ -151,31 +136,24 @@ export default function Dashboard() {
     setIsLoadingAvailableRepos(true);
     
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
+      if (!session?.accessToken) {
         throw new Error('Authentication token not found. Please log in again.');
       }
       
-      const response = await fetch(`${baseUrl}/github/repos`, {
-        credentials: 'include',
+      const response = await fetch('https://api.github.com/user/repos', {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
         }
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
+        const data = await response.json();
+        throw new Error(data.message || `Error: ${response.status}`);
       }
       
-      setAvailableRepos(data.repositories || []);
+      const data = await response.json();
+      setAvailableRepos(data);
     } catch (error) {
       console.error('Failed to fetch available repositories:', error);
       setError(`Failed to load available repositories: ${error instanceof Error ? error.message : String(error)}`);
@@ -189,45 +167,27 @@ export default function Dashboard() {
     if (selectedReposToAdd.length === 0) return;
     
     setIsAddingRepos(true);
-    
+
     try {
-      // Always use the production URL to avoid CORS issues
-      const baseUrl = 'https://us-central1-ai-code-fixer.cloudfunctions.net/auth';
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_client_token') || localStorage.getItem('auth_token');
-      
-      if (!token) {
-        throw new Error('Authentication token not found. Please log in again.');
-      }
-      
-      const response = await fetch(`${baseUrl}/github/add-repos`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          repositories: selectedReposToAdd
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || data.message || `Error: ${response.status}`);
-      }
-      
-      // Update repositories from the response
-      if (data.repositories) {
-        setRepositories(data.repositories);
+      const data = {
+        name: selectedReposToAdd[0].name,
+        fullName: selectedReposToAdd[0].full_name,
+        url: selectedReposToAdd[0].html_url,
+        description: selectedReposToAdd[0].description,
+        private: selectedReposToAdd[0].private,
+        defaultBranch: selectedReposToAdd[0].defaultBranch,
+        repoId: selectedReposToAdd[0].id
+      };
+
+      const repos = await apiClient.addRepo(session?.accessToken, data);
+
+      if (Array.isArray(repos)) {
+        setRepositories(repos);
       } else {
-        // Fetch repositories if not returned in response
         await fetchRepositories();
       }
       
-      // Close the dropdown and reset selection
+      //Close the dropdown and reset selection
       setShowRepoSelector(false);
       setSelectedReposToAdd([]);
       
@@ -235,29 +195,26 @@ export default function Dashboard() {
       console.error('Failed to add repositories:', error);
       setError(`Failed to add repositories: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setIsAddingRepos(false);
+      // setIsAddingRepos(false);
     }
   };
   
-  // Fetch repositories on component mount
-  useEffect(() => {
-    fetchRepositories();
-  }, []);
-  
   // Filter and search repositories
-  const filteredRepositories = repositories.filter(repo => {
-    // Apply text search
-    const matchesSearch = repo.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         repo.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Apply status filter
-    const matchesFilter = activeFilter === 'all' || 
-                         (activeFilter === 'active' && repo.status === 'active') ||
-                         (activeFilter === 'completed' && repo.status === 'completed') ||
-                         (activeFilter === 'not_started' && repo.status === 'not_started');
-    
-    return matchesSearch && matchesFilter;
-  });
+  const filteredRepositories = Array.isArray(repositories) 
+    ? repositories.filter(repo => {
+        // Apply text search
+        const matchesSearch = repo.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             repo.description?.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        // Apply status filter
+        const matchesFilter = activeFilter === 'all' || 
+                             (activeFilter === 'active' && repo.status === 'active') ||
+                             (activeFilter === 'completed' && repo.status === 'completed') ||
+                             (activeFilter === 'not_started' && repo.status === 'not_started');
+        
+        return matchesSearch && matchesFilter;
+      })
+    : [];
   
   // Filter available repositories by search term
   const filteredAvailableRepos = availableRepos.filter(repo =>
@@ -275,8 +232,12 @@ export default function Dashboard() {
   };
   
   // Get counts for dashboard stats
-  const totalIssues = repositories.reduce((sum, repo) => sum + (repo.issues_count || 0), 0);
-  const fixedIssues = repositories.reduce((sum, repo) => sum + (repo.fixed_issues || 0), 0);
+  const totalIssues = Array.isArray(repositories) 
+    ? repositories.reduce((sum, repo) => sum + (repo.issues_count || 0), 0)
+    : 0;
+  const fixedIssues = Array.isArray(repositories) 
+    ? repositories.reduce((sum, repo) => sum + (repo.fixed_issues || 0), 0)
+    : 0;
   const fixRate = totalIssues > 0 ? Math.round((fixedIssues / totalIssues) * 100) : 0;
   
   const handleSelectRepository = (repository: any) => {
@@ -296,20 +257,14 @@ export default function Dashboard() {
   const handleRefresh = () => {
     fetchRepositories();
   };
-  
-  if (loading) {
+
+  // If loading or not authenticated, show loading state
+  if (loading || status === 'loading' || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-gray-700 mx-auto"></div>
-          <p className="mt-4 text-lg">Loading...</p>
-        </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-16 h-16 border-t-4 border-blue-500 border-solid rounded-full animate-spin"></div>
       </div>
     );
-  }
-
-  if (!user) {
-    return null; // Will redirect in useEffect
   }
 
   return (
@@ -847,4 +802,4 @@ export default function Dashboard() {
       </main>
     </div>
   );
-} 
+}
